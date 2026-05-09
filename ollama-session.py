@@ -13,12 +13,11 @@ import urllib.error
 import urllib.request
 
 from header import SessionHeader
+from meter import ValueMeter
 
 
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_SERVER_START_TIMEOUT_SECONDS = 30
-OLLAMA_HEALTH_POLL_INTERVAL_SECONDS = 0.5
-MODEL_LOAD_TIMEOUT_SECONDS = 120
+
 HEADER_UPDATE_INTERVAL_SECONDS = 1
 INPUT_PROMPT = "> "
 
@@ -78,6 +77,9 @@ class OllamaSession:
             return False
 
     def _wait_for_server_ready(self):
+        OLLAMA_SERVER_START_TIMEOUT_SECONDS = 30
+        OLLAMA_HEALTH_POLL_INTERVAL_SECONDS = 0.5
+
         deadline = time.time() + OLLAMA_SERVER_START_TIMEOUT_SECONDS
         while time.time() < deadline:
             if self._is_server_running():
@@ -113,6 +115,8 @@ class OllamaSession:
             return "unknown"
 
     def _preload_model(self):
+        MODEL_LOAD_TIMEOUT_SECONDS = 120
+
         try:
             with http_post(
                 "/api/generate",
@@ -153,20 +157,39 @@ def restore_terminal():
     sys.stdout.flush()
 
 
-def _run_update_loop(header: SessionHeader, stop_event: threading.Event):
+def _run_update_loop(updatables: list, stop_event: threading.Event):
     while not stop_event.is_set():
-        header.update()
+        now = time.time()
+        for obj in updatables:
+            obj.tick(now)
         stop_event.wait(HEADER_UPDATE_INTERVAL_SECONDS)
+
+
+def _build_meters(start_row: int) -> list:
+    max_val = 60.0
+
+    def stub_getter():
+        return time.time() % max_val
+    
+    def stub_getter2():
+        return time.time() % max_val
+
+    return [
+        ValueMeter("Time", stub_getter, max_val, row=start_row, unit="s"),
+        ValueMeter("Time", stub_getter2, max_val, row=start_row, unit="s"),
+    ]
 
 
 def start_session_ui(ollama: OllamaSession):
     os.system("clear")
-    header = SessionHeader(ollama)
+    header = SessionHeader(ollama, row=1)
     header.start()
-    sys.stdout.write("\n\n")
+    meters = _build_meters(start_row=2)
+    sys.stdout.write("\n" * (1 + len(meters)))
     sys.stdout.flush()
+    updatables = [header] + meters
     stop_event = threading.Event()
-    threading.Thread(target=_run_update_loop, args=(header, stop_event), daemon=True).start()
+    threading.Thread(target=_run_update_loop, args=(updatables, stop_event), daemon=True).start()
     return stop_event
 
 

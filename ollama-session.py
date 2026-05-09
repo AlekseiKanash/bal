@@ -179,15 +179,40 @@ def _build_ui(ollama: OllamaSession) -> list:
     def stub_getter2(precision=2):
         return f"{time.time() % max_val2:.{precision}f}"
 
-    meters = [
+
+    def stub_getter3(precision=2):
+        return f"{time.time() % max_val2:.{precision}f}"
+
+    lines = [
+        header,
         ValueMeter("Time", stub_getter, max_val1, unit="s"),
         ValueMeter("Time", stub_getter2, max_val2, unit="s"),
+        ValueMeter("Time", stub_getter2, max_val2, unit="s"),
+        ValueMeter("Test", stub_getter3, max_val2, unit="s", row = 3),
     ]
 
-    for i, meter in enumerate(meters):
-        meter._row = header._row + 1 + i
+    return _build_sorted_list(lines)
 
-    return [header] + meters
+
+def _build_sorted_list(updatables) -> list:
+    """Assign rows to auto widgets and sort them by row."""
+    fixed = [m for m in updatables if m._row is not None]
+    auto = [m for m in updatables if m._row is None]
+
+    all_rows = [m._row for m in fixed]
+    lo = min(all_rows) if all_rows else 1
+    hi = max(all_rows) if all_rows else 1
+
+    available = sorted(set(range(lo, hi + 1)) - set(all_rows))
+    next_auto_row = hi + 1
+    for i, meter in enumerate(auto):
+        if i < len(available):
+            meter._row = available[i]
+        else:
+            meter._row = next_auto_row
+            next_auto_row += 1
+
+    return sorted(fixed + auto, key=lambda m: m._row)
 
 
 def start_session_ui(ollama: OllamaSession):

@@ -11,7 +11,7 @@ def _format_elapsed_time(total_seconds):
 class SessionHeader:
     """Renders the stats line pinned to a fixed terminal row."""
 
-    def __init__(self, ollama, row: int = 1):
+    def __init__(self, ollama, row: int | None = None):
         self._ollama = ollama
         self._row = row
         self._start_time = None

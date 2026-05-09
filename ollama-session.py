@@ -165,29 +165,36 @@ def _run_update_loop(updatables: list, stop_event: threading.Event):
         stop_event.wait(HEADER_UPDATE_INTERVAL_SECONDS)
 
 
-def _build_meters(start_row: int) -> list:
-    max_val = 60.0
+def _build_ui(ollama: OllamaSession) -> list:
+    """Build and initialize all updatable UI objects. Must be called after terminal is cleared."""
+    header = SessionHeader(ollama, row=1)
+    header.start()
 
-    def stub_getter():
-        return time.time() % max_val
-    
-    def stub_getter2():
-        return time.time() % max_val
+    max_val1 = 60.0
+    max_val2 = 20.0
 
-    return [
-        ValueMeter("Time", stub_getter, max_val, row=start_row, unit="s"),
-        ValueMeter("Time", stub_getter2, max_val, row=start_row, unit="s"),
+    def stub_getter(precision=2):
+        return f"{time.time() % max_val1:.{precision}f}"
+
+    def stub_getter2(precision=2):
+        return f"{time.time() % max_val2:.{precision}f}"
+
+    meters = [
+        ValueMeter("Time", stub_getter, max_val1, unit="s"),
+        ValueMeter("Time", stub_getter2, max_val2, unit="s"),
     ]
+
+    for i, meter in enumerate(meters):
+        meter._row = header._row + 1 + i
+
+    return [header] + meters
 
 
 def start_session_ui(ollama: OllamaSession):
     os.system("clear")
-    header = SessionHeader(ollama, row=1)
-    header.start()
-    meters = _build_meters(start_row=2)
-    sys.stdout.write("\n" * (1 + len(meters)))
+    updatables = _build_ui(ollama)
+    sys.stdout.write("\n" * len(updatables))
     sys.stdout.flush()
-    updatables = [header] + meters
     stop_event = threading.Event()
     threading.Thread(target=_run_update_loop, args=(updatables, stop_event), daemon=True).start()
     return stop_event

@@ -15,7 +15,7 @@ class ValueMeter:
         label: str,
         getter,
         max_value: float,
-        row: int,
+        row: int | None = None,
         unit: str = "",
         bar_width: int = 20,
         history_size: int = 10,

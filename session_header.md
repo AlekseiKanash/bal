@@ -16,19 +16,19 @@ Ollama-Session | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
 ## Constructor
 
 ```python
-SessionHeader(version: str, model_name: str)
+SessionHeader(ollama: OllamaSession)
 ```
 
-Stores the static display values. Does not touch the terminal or start any threads. Safe to construct before the terminal is cleared.
+Accepts an `OllamaSession` instance and reads `_version` and `_model_name` from it at render time. Does not touch the terminal or start any threads. Safe to construct before the terminal is cleared.
 
 ## Lifecycle
 
 ```
-SessionHeader(version, model_name)   ← construct early, no side effects
+SessionHeader(ollama)            ← construct early, no side effects
         │
         │  (clear terminal here)
         │
-    header.start()                   ← records start time, renders row 1 once
+    header.start()               ← records start time, renders row 1 once
         │
         │  caller drives the update loop and calls header.update() on each tick
         │

@@ -20,7 +20,7 @@ python ollama-session.py --model llama3
 
 | File | Responsibility |
 |---|---|
-| `ollama-session.py` | Entry point. CLI argument parsing, ollama server and model lifecycle, session UI orchestration, input loop. |
+| `ollama-session.py` | Entry point. CLI argument parsing, `OllamaSession` class, session UI orchestration, input loop. See [ollama_session.md](ollama_session.md). |
 | `header.py` | `SessionHeader` class — renders and continuously updates the stats line pinned to row 1 of the terminal. See [session_header.md](session_header.md). |
 
 ## Ollama Server
@@ -53,15 +53,15 @@ Key endpoints used:
 1. Parse `--model` argument; exit with a clear error message if it is missing.
 2. Check if the ollama server is already running by sending GET `/` with a short timeout.
    - If not running: start `ollama serve` as a background subprocess and poll GET `/` until it responds (up to a timeout).
-   - If already running: use it as-is and skip the subprocess step. Log the issue and Exit the script with -1 code.
+   - If already running: log the issue and exit the script with code 1.
 3. Retrieve the ollama version via GET `/api/version`.
 4. Load the model into memory via POST `/api/generate` with `keep_alive: -1`. Stream and display the response so the user can see loading progress.
-5. Construct a `SessionHeader` with the version and model name.
+5. Construct a `SessionHeader` with the `OllamaSession` instance.
 6. Clear the terminal.
 7. Call `SessionHeader.start()` to render row 1 and begin the live counter.
 8. Enter the command input loop.
 
-The startup log (steps 2–4) is visible to the user before the terminal is cleared, so any errors or warnings from ollama appear naturally.
+Steps 2–4 are encapsulated in `OllamaSession.start()`. The startup log is visible to the user before the terminal is cleared, so any errors or warnings from ollama appear naturally.
 
 ## Stats Header
 

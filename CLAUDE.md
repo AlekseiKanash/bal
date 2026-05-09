@@ -1,18 +1,25 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Python 3 CLI tool that manages a local LLM session via ollama: starts the server, loads a model, shows a live stats header, and runs an input loop.
 
-This repository is currently empty. Update this file once the project structure is established.
+## Project map
 
-# Programming Language
-Python 3 is used for this codebase.
-Only default libraries are allowed by default. Any additional installations should be approved by a developer.
+| File | What it is |
+|---|---|
+| `spec.md` | Full specification — architecture, endpoints, startup sequence, termination |
+| `ollama-session.py` | Entry point. `OllamaSession` class + CLI arg parsing, session UI, input loop |
+| `header.py` | `SessionHeader` class — ANSI stats line pinned to terminal row 1 |
+| `ollama_session.md` | `OllamaSession` reference — attributes, `start()`, `cleanup()`, private methods |
+| `session_header.md` | `SessionHeader` reference — constructor, `start()`, `update()`, ANSI sequence |
 
-# code style guide and code review
-Use standard pip-8 style guide, do not try to limit strings len by 80 characters in a line, instead, use 120.
-Magic numners are not allowed, prefer variables or function/method parameters with default values.
-Global variables should not be declared inside functions/methods. 
-Prefer spaces, not tabs.
-Humans and LLMs will be reading this code and documentation, keep it as clear as possible.
-Prefer to have short 20-30 lines functions/methods. You can go up to 40-50 lines when extraction of sume functioanlity as a separate function takes 1-3 lines of code. 
-Prefer to reuse code instad of duplicating the existing code.
+## Key facts
+
+- ollama REST API on `http://localhost:11434`, accessed via `urllib` only (no third-party HTTP libs)
+- `OllamaSession` owns the server process and model lifecycle; `SessionHeader` is a pure display object
+- `SessionHeader` reads `_version` and `_model_name` directly from the `OllamaSession` instance
+- Update loop lives in `ollama-session.py` (`_run_update_loop`); `SessionHeader` has no threads
+- Graceful shutdown registered via `atexit` — unloads model, stops server only if we started it
+
+## Coding guide
+
+See [coding_guide.md](coding_guide.md).

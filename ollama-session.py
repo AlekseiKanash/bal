@@ -4,6 +4,7 @@ import argparse
 import atexit
 import json
 import os
+import platform
 import signal
 import subprocess
 import sys
@@ -168,21 +169,37 @@ def _run_update_loop(updatables: list, stop_event: threading.Event):
         stop_event.wait(HEADER_UPDATE_INTERVAL_SECONDS)
 
 
+def _ram_used_gb_macos():
+    """Match Activity Monitor: anonymous pages + wired + compressor pages."""
+    result = subprocess.run(["vm_stat"], capture_output=True, text=True)
+    page_size = 4096
+    stats = {}
+    for line in result.stdout.splitlines():
+        if "page size of" in line:
+            page_size = int(line.split("page size of")[1].split()[0])
+        elif ":" in line:
+            key, _, val = line.partition(":")
+            try:
+                stats[key.strip()] = int(val.strip().rstrip("."))
+            except ValueError:
+                pass
+    anonymous = stats.get("Anonymous pages", 0)
+    wired = stats.get("Pages wired down", 0)
+    compressed = stats.get("Pages occupied by compressor", 0)
+    return (anonymous + wired + compressed) * page_size / (1024**3)
+
+
+def ram_getter(precision=1):
+    if platform.system() == "Darwin":
+        used_gb = _ram_used_gb_macos()
+    else:
+        mem = psutil.virtual_memory()
+        used_gb = (mem.total - mem.available) / (1024**3)
+    return f"{used_gb:.{precision}f}"
+
+
 def _build_ui(ollama: OllamaSession) -> list:
     """Build and initialize all updatable UI objects. Must be called after terminal is cleared."""
-
-    max_val1 = 60.0
-    max_val2 = 20.0
-
-    def stub_getter(precision=2):
-        return f"{time.time() % max_val1:.{precision}f}"
-
-    def stub_getter2(precision=2):
-        return f"{time.time() % max_val2:.{precision}f}"
-
-
-    def stub_getter3(precision=2):
-        return f"{time.time() % max_val2:.{precision}f}"
 
     # Seed the measurement so the first real call returns a delta, not 0.0
     psutil.cpu_percent(interval=None)
@@ -197,10 +214,7 @@ def _build_ui(ollama: OllamaSession) -> list:
 
     lines = [
         ValueMeter("CPU", cpu_getter, 100.0, unit="%"),
-        ValueMeter("Time", stub_getter, max_val1, unit="s"),
-        ValueMeter("Time", stub_getter2, max_val2, unit="s"),
-        ValueMeter("Time", stub_getter2, max_val2, unit="s"),
-        ValueMeter("Test", stub_getter3, max_val2, unit="s"),
+        ValueMeter("RAM", ram_getter, psutil.virtual_memory().total / (1024**3), unit="Gb"),
     ]
 
     return _build_sorted_list(header + lines)

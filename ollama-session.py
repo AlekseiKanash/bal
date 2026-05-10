@@ -182,19 +182,19 @@ def _build_ui(ollama: OllamaSession) -> list:
     def stub_getter3(precision=2):
         return f"{time.time() % max_val2:.{precision}f}"
 
-
-
-
-    lines = [
+    header = [
         SessionHeader(ollama, row=1),
         HorizontalText("─────────────────────────────────────────────────────────────────────────────────"),
+    ]
+
+    lines = [
         ValueMeter("Time", stub_getter, max_val1, unit="s"),
         ValueMeter("Time", stub_getter2, max_val2, unit="s"),
         ValueMeter("Time", stub_getter2, max_val2, unit="s"),
         ValueMeter("Test", stub_getter3, max_val2, unit="s"),
     ]
 
-    return _build_sorted_list(lines)
+    return _build_sorted_list(header + lines)
 
 
 def _build_sorted_list(updatables) -> list:

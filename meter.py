@@ -6,6 +6,19 @@ _BAR_EMPTY = "░"
 _SPARK_CHARS = "▁▂▃▄▅▆▇"
 _SPARK_EMPTY = "·"
 
+_GREEN  = "\033[32m"
+_YELLOW = "\033[33m"
+_RED    = "\033[31m"
+_RESET  = "\033[0m"
+
+
+def _pct_color(pct: float) -> str:
+    if pct >= 0.90:
+        return _RED
+    if pct >= 0.50:
+        return _YELLOW
+    return _GREEN
+
 
 class ValueMeter:
     """Reusable numeric metric widget: progress bar + sparkline history, driven by a pluggable getter."""
@@ -20,7 +33,7 @@ class ValueMeter:
         bar_width: int = 20,
         history_size: int = 10,
         update_interval: float = 1.0,
-        label_width: int = 6,
+        label_width: int = 4,
         formatter=None,
     ):
         self._label = label
@@ -53,7 +66,9 @@ class ValueMeter:
         bar = self._build_bar(pct)
         spark = self._build_spark()
         current_str = self._formatter(self._current) if self._formatter else str(self._current)
-        return f"{self._label:<{self._label_width}}  {bar}  {int(pct * 100):3d}%  {spark}  {current_str}{self._unit}"
+        color = _pct_color(pct)
+        pct_str = f"{color}{int(pct * 100):3d}%{_RESET}"
+        return f"  {self._label:<{self._label_width}} {bar}  {pct_str}  {spark}  {current_str}{self._unit}"
 
     def draw(self, col: int = 1) -> None:
         """Render at the assigned row without disturbing the active cursor."""

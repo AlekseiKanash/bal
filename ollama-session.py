@@ -234,7 +234,7 @@ def _build_ui(ollama: OllamaSession) -> list:
     lines += [
         ValueMeter("CPU", cpu_getter, 100.0, unit="%"),
         ValueMeter("GPU", gpu_getter, 100.0, unit="%"),
-        ValueMeter("RAM", ram_getter, 100.0, unit="%"),
+        ValueMeter("RAM", ram_getter, psutil.virtual_memory().total / (1024**3), unit="GB"),
     ]
 
     model_name = ollama._model_name

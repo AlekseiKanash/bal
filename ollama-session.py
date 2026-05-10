@@ -5,6 +5,7 @@ import atexit
 import json
 import os
 import platform
+import re
 import signal
 import subprocess
 import sys
@@ -189,6 +190,25 @@ def _ram_used_gb_macos():
     return (anonymous + wired + compressed) * page_size / (1024**3)
 
 
+def _gpu_load_macos():
+    result = subprocess.run(
+        ["ioreg", "-r", "-d", "1", "-w", "0", "-c", "AGXAccelerator"],
+        capture_output=True, text=True,
+    )
+    match = re.search(r'"Device Utilization %"=(\d+)', result.stdout)
+    return float(match.group(1)) if match else 0.0
+
+
+def cpu_getter(precision=0):
+    return f"{psutil.cpu_percent(interval=None):.{precision}f}"
+
+
+def gpu_getter(precision=0):
+    if platform.system() == "Darwin":
+        return f"{_gpu_load_macos():.{precision}f}"
+    return "0"
+
+
 def ram_getter(precision=1):
     if platform.system() == "Darwin":
         used_gb = _ram_used_gb_macos()
@@ -201,23 +221,40 @@ def ram_getter(precision=1):
 def _build_ui(ollama: OllamaSession) -> list:
     """Build and initialize all updatable UI objects. Must be called after terminal is cleared."""
 
+    lines = []
+
     # Seed the measurement so the first real call returns a delta, not 0.0
     psutil.cpu_percent(interval=None)
 
-    def cpu_getter(precision=0):
-        return f"{psutil.cpu_percent(interval=None):.{precision}f}"
-
-    header = [
+    lines += [
         SessionHeader(ollama, row=1),
         HorizontalText("─────────────────────────────────────────────────────────────────────────────────"),
     ]
 
-    lines = [
+    lines += [
         ValueMeter("CPU", cpu_getter, 100.0, unit="%"),
-        ValueMeter("RAM", ram_getter, psutil.virtual_memory().total / (1024**3), unit="Gb"),
+        ValueMeter("GPU", gpu_getter, 100.0, unit="%"),
+        ValueMeter("RAM", ram_getter, 100.0, unit="%"),
     ]
 
-    return _build_sorted_list(header + lines)
+    model_name = ollama._model_name
+    agents = [
+        "claude",
+        "codex",
+        "opencode",
+        "openclaw",
+    ]
+    lines += [
+        HorizontalText(""),
+        HorizontalText("─── How to run using an agent ───────────────────────────────────────────────────"),
+        HorizontalText(""),
+    ]
+    lines += [
+        HorizontalText(f"  ollama launch {agent} --model {model_name}")
+        for agent in agents
+    ]
+
+    return _build_sorted_list(lines)
 
 
 def _build_sorted_list(updatables) -> list:

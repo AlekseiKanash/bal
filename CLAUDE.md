@@ -6,16 +6,17 @@ Python 3 CLI tool that manages a local LLM session via ollama: starts the server
 
 | File | What it is |
 |---|---|
-| `spec.md` | Full specification — architecture, endpoints, startup sequence, termination |
-| `requirements.txt` | Python dependencies (`psutil`) |
 | `ollama-session.py` | Entry point. `OllamaSession` class + CLI arg parsing, session UI, input loop |
-| `header.py` | `SessionHeader` class — ANSI stats line pinned to a fixed terminal row |
-| `meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row |
-| `horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row |
-| `ollama_session.md` | `OllamaSession` reference — attributes, `start()`, `cleanup()`, private methods |
-| `session_header.md` | `SessionHeader` reference — constructor, `start()`, `tick()`, ANSI sequence |
-| `meter.md` | `ValueMeter` reference — constructor, `tick()`, `render()`, `draw()` |
-| `horizontal_text.md` | `HorizontalText` reference — constructor, `tick()`, ANSI sequence |
+| `requirements.txt` | Python dependencies (`psutil`) |
+| `install.sh` | Installs the tool to `~/.local/share/ollama-session/` and creates a wrapper at `~/.local/bin/ollama-session` |
+| `widgets/header.py` | `SessionHeader` class — ANSI stats line pinned to a fixed terminal row |
+| `widgets/meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row |
+| `widgets/horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row |
+| `docs/spec.md` | Full specification — architecture, endpoints, startup sequence, termination |
+| `docs/ollama_session.md` | `OllamaSession` reference — attributes, `start()`, `cleanup()`, private methods |
+| `docs/session_header.md` | `SessionHeader` reference — constructor, `start()`, `tick()`, ANSI sequence |
+| `docs/meter.md` | `ValueMeter` reference — constructor, `tick()`, `render()`, `draw()` |
+| `docs/horizontal_text.md` | `HorizontalText` reference — constructor, `tick()`, ANSI sequence |
 
 ## Key facts
 
@@ -29,4 +30,4 @@ Python 3 CLI tool that manages a local LLM session via ollama: starts the server
 
 ## Coding guide
 
-See [coding_guide.md](coding_guide.md).
+See [docs/coding_guide.md](docs/coding_guide.md).

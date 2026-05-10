@@ -16,9 +16,9 @@ import urllib.request
 
 import psutil
 
-from header import SessionHeader
-from meter import ValueMeter
-from horizontal_text import HorizontalText
+from widgets.header import SessionHeader
+from widgets.meter import ValueMeter
+from widgets.horizontal_text import HorizontalText
 
 
 OLLAMA_BASE_URL = "http://localhost:11434"

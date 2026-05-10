@@ -168,8 +168,6 @@ def _run_update_loop(updatables: list, stop_event: threading.Event):
 
 def _build_ui(ollama: OllamaSession) -> list:
     """Build and initialize all updatable UI objects. Must be called after terminal is cleared."""
-    header = SessionHeader(ollama, row=1)
-    header.start()
 
     max_val1 = 60.0
     max_val2 = 20.0
@@ -184,8 +182,11 @@ def _build_ui(ollama: OllamaSession) -> list:
     def stub_getter3(precision=2):
         return f"{time.time() % max_val2:.{precision}f}"
 
+
+
+
     lines = [
-        header,
+        SessionHeader(ollama, row=1),
         HorizontalText("─────────────────────────────────────────────────────────────────────────────────"),
         ValueMeter("Time", stub_getter, max_val1, unit="s"),
         ValueMeter("Time", stub_getter2, max_val2, unit="s"),

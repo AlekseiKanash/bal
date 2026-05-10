@@ -2,7 +2,7 @@
 
 To try to implement all of that using claude and local llm and claude + opus and codex + local llm
 
-1. new widget - horizontal splitter + text (-- Some Text ----------------)
+1. [V] new widget - horizontal splitter + text (-- Some Text ----------------)
 2. border around the content, drawn before the contene.
 3. cursor into a soecific place below all widgets (a special cursor widget?)
 4. Helpers messages on how to launch the llm with an agent (Claude, Codex, OpenClaw, OpenCode)

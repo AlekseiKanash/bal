@@ -14,6 +14,7 @@ import urllib.request
 
 from header import SessionHeader
 from meter import ValueMeter
+from horizontal_text import HorizontalText
 
 
 OLLAMA_BASE_URL = "http://localhost:11434"
@@ -185,10 +186,11 @@ def _build_ui(ollama: OllamaSession) -> list:
 
     lines = [
         header,
+        HorizontalText("─────────────────────────────────────────────────────────────────────────────────"),
         ValueMeter("Time", stub_getter, max_val1, unit="s"),
         ValueMeter("Time", stub_getter2, max_val2, unit="s"),
         ValueMeter("Time", stub_getter2, max_val2, unit="s"),
-        ValueMeter("Test", stub_getter3, max_val2, unit="s", row = 3),
+        ValueMeter("Test", stub_getter3, max_val2, unit="s"),
     ]
 
     return _build_sorted_list(lines)

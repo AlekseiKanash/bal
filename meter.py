@@ -1,9 +1,9 @@
 import sys
 
 
-_BAR_FULL = "█"
+_BAR_FULL = "▇"
 _BAR_EMPTY = "░"
-_SPARK_CHARS = "▁▂▃▄▅▆▇█"
+_SPARK_CHARS = "▁▂▃▄▅▆▇"
 _SPARK_EMPTY = "·"
 
 

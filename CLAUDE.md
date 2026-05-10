@@ -10,9 +10,11 @@ Python 3 CLI tool that manages a local LLM session via ollama: starts the server
 | `ollama-session.py` | Entry point. `OllamaSession` class + CLI arg parsing, session UI, input loop |
 | `header.py` | `SessionHeader` class — ANSI stats line pinned to a fixed terminal row |
 | `meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row |
+| `horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row |
 | `ollama_session.md` | `OllamaSession` reference — attributes, `start()`, `cleanup()`, private methods |
 | `session_header.md` | `SessionHeader` reference — constructor, `start()`, `tick()`, ANSI sequence |
 | `meter.md` | `ValueMeter` reference — constructor, `tick()`, `render()`, `draw()` |
+| `horizontal_text.md` | `HorizontalText` reference — constructor, `tick()`, ANSI sequence |
 
 ## Key facts
 

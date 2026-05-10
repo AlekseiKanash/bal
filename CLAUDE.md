@@ -7,6 +7,7 @@ Python 3 CLI tool that manages a local LLM session via ollama: starts the server
 | File | What it is |
 |---|---|
 | `spec.md` | Full specification — architecture, endpoints, startup sequence, termination |
+| `requirements.txt` | Python dependencies (`psutil`) |
 | `ollama-session.py` | Entry point. `OllamaSession` class + CLI arg parsing, session UI, input loop |
 | `header.py` | `SessionHeader` class — ANSI stats line pinned to a fixed terminal row |
 | `meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row |
@@ -19,6 +20,7 @@ Python 3 CLI tool that manages a local LLM session via ollama: starts the server
 ## Key facts
 
 - ollama REST API on `http://localhost:11434`, accessed via `urllib` only (no third-party HTTP libs)
+- `psutil` is used for system metrics (CPU utilization); `psutil.cpu_percent(interval=None)` is seeded once in `_build_ui` before any widget reads it
 - `OllamaSession` owns the server process and model lifecycle; `SessionHeader` and `ValueMeter` are pure display objects
 - `SessionHeader` reads `_version` and `_model_name` directly from the `OllamaSession` instance
 - Update loop lives in `ollama-session.py` (`_run_update_loop`); it passes a shared `now` timestamp to every updatable object's `tick(now)` method

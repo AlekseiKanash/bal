@@ -12,6 +12,8 @@ import time
 import urllib.error
 import urllib.request
 
+import psutil
+
 from header import SessionHeader
 from meter import ValueMeter
 from horizontal_text import HorizontalText
@@ -182,12 +184,19 @@ def _build_ui(ollama: OllamaSession) -> list:
     def stub_getter3(precision=2):
         return f"{time.time() % max_val2:.{precision}f}"
 
+    # Seed the measurement so the first real call returns a delta, not 0.0
+    psutil.cpu_percent(interval=None)
+
+    def cpu_getter(precision=0):
+        return f"{psutil.cpu_percent(interval=None):.{precision}f}"
+
     header = [
         SessionHeader(ollama, row=1),
         HorizontalText("─────────────────────────────────────────────────────────────────────────────────"),
     ]
 
     lines = [
+        ValueMeter("CPU", cpu_getter, 100.0, unit="%"),
         ValueMeter("Time", stub_getter, max_val1, unit="s"),
         ValueMeter("Time", stub_getter2, max_val2, unit="s"),
         ValueMeter("Time", stub_getter2, max_val2, unit="s"),

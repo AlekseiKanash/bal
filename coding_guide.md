@@ -2,7 +2,8 @@
 
 ## Language and dependencies
 
-- Python 3, standard library only
+- Python 3
+- Third-party packages: `psutil` (system metrics). Install via `pip install -r requirements.txt`.
 - Additional packages require developer approval before installation
 
 ## Style

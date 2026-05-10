@@ -8,8 +8,10 @@
 Reusable numeric metric widget: progress bar + sparkline history, driven by a pluggable getter. Renders at a fixed terminal row.
 
 ```
-Time    ████████████░░░░░░░░   62%  ▁▂▃▄▅▆▇█··  42.17s
+  Time ▇▇▇▇▇▇▇▇▇▇▇▇░░░░░░░░   62%  ▁▂▃▄▅▆▇▇··  42.17s
 ```
+
+The percentage is color-coded: green [0–49%], yellow [50–89%], red [90–100%].
 
 `ValueMeter` is a pure display object — it owns no threads. The caller drives updates by calling `tick(now)` at the desired interval.
 
@@ -25,7 +27,7 @@ ValueMeter(
     bar_width: int = 20,
     history_size: int = 10,
     update_interval: float = 1.0,
-    label_width: int = 6,
+    label_width: int = 4,
     formatter=None,
 )
 ```
@@ -63,4 +65,4 @@ Writes `render()` at the current cursor position. For inline or debug use.
 
 ## Internals
 
-Ring buffer `_history[history_size]` written round-robin via `_head`. `_build_bar` fills block chars proportional to `pct`. `_build_spark` reads oldest-to-newest; unsampled slots render as `·`.
+Ring buffer `_history[history_size]` written round-robin via `_head`. `_build_bar` fills block chars proportional to `pct`. `_build_spark` reads oldest-to-newest; unsampled slots render as `·`. `_pct_color` maps the percentage to an ANSI color code.

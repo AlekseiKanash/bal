@@ -22,6 +22,7 @@ python ollama-session.py --model llama3
 |---|---|
 | `ollama-session.py` | Entry point. CLI argument parsing, `OllamaSession` class, session UI orchestration, input loop. See [ollama_session.md](ollama_session.md). |
 | `header.py` | `SessionHeader` class — renders and continuously updates the stats line pinned to row 1 of the terminal. See [session_header.md](session_header.md). |
+| `meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row. See [meter.md](meter.md). |
 | `horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row. See [horizontal_text.md](horizontal_text.md). |
 
 ## Ollama Server
@@ -73,6 +74,35 @@ The header is displayed on the first line of the terminal and updated in-place e
 ```
 Ollama-Session | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
 ```
+
+## System Meters
+
+Three `ValueMeter` widgets render below the header, each updated every second:
+
+| Meter | Source | Unit |
+|---|---|---|
+| CPU | `psutil.cpu_percent()` — actual CPU utilization delta | % |
+| GPU | `ioreg -c AGXAccelerator` `"Device Utilization %"` (macOS); `0` elsewhere | % |
+| RAM | `vm_stat` anonymous + wired + compressor pages (macOS); `psutil` `total − available` elsewhere | GB |
+
+The percentage value is color-coded: green [0–49%], yellow [50–89%], red [90–100%].
+
+See [meter.md](meter.md) for full `ValueMeter` documentation.
+
+## Agent Hints
+
+Below the meters, the UI displays a static section showing how to connect an AI agent to the running model:
+
+```
+─── How to run using an agent ───────────────────────────────────────────────────
+
+  ollama launch claude --model <model-name>
+  ollama launch codex --model <model-name>
+  ollama launch opencode --model <model-name>
+  ollama launch openclaw --model <model-name>
+```
+
+The model name is substituted at startup from the `--model` argument.
 
 ## Input Loop
 

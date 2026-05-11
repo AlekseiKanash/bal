@@ -8,12 +8,16 @@
 
 ```
 python ollama-session.py --model <model-name>
+python ollama-session.py --dry-run [--model <model-name>]
 ```
 
-`--model` is required. Example:
+`--model` is required in normal mode. `--dry-run` starts the server and shows the UI without loading a model — useful for UI development and testing widgets.
+
+Example:
 
 ```
 python ollama-session.py --model llama3
+python ollama-session.py --dry-run
 ```
 
 ## Components
@@ -21,9 +25,10 @@ python ollama-session.py --model llama3
 | File | Responsibility |
 |---|---|
 | `ollama-session.py` | Entry point. CLI argument parsing, `OllamaSession` class, session UI orchestration, input loop. See [ollama_session.md](ollama_session.md). |
-| `header.py` | `SessionHeader` class — renders and continuously updates the stats line pinned to row 1 of the terminal. See [session_header.md](session_header.md). |
-| `meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row. See [meter.md](meter.md). |
-| `horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row. See [horizontal_text.md](horizontal_text.md). |
+| `widgets/header.py` | `SessionHeader` class — renders and continuously updates the stats line pinned to row 1 of the terminal. See [session_header.md](session_header.md). |
+| `widgets/meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row. See [meter.md](meter.md). |
+| `widgets/horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row. See [horizontal_text.md](horizontal_text.md). |
+| `widgets/border.py` | `Border` class — draws a rectangular frame at a fixed terminal position; always rendered last (overlay). See [border.md](border.md). |
 
 ## Ollama Server
 
@@ -52,18 +57,16 @@ Key endpoints used:
 
 ## Startup Sequence
 
-1. Parse `--model` argument; exit with a clear error message if it is missing.
+1. Parse CLI arguments. Exit with a clear error if `--model` is missing and `--dry-run` is not set.
 2. Check if the ollama server is already running by sending GET `/` with a short timeout.
    - If not running: start `ollama serve` as a background subprocess and poll GET `/` until it responds (up to a timeout).
-   - If already running: log the issue and exit the script with code 1.
+   - If already running: log the issue and exit with code 1.
 3. Retrieve the ollama version via GET `/api/version`.
-4. Load the model into memory via POST `/api/generate` with `keep_alive: -1`. Stream and display the response so the user can see loading progress.
-5. Construct a `SessionHeader` with the `OllamaSession` instance.
-6. Clear the terminal.
-7. Call `SessionHeader.start()` to render row 1 and begin the live counter.
-8. Enter the command input loop.
+4. Unless `--dry-run`: load the model into memory via POST `/api/generate` with `keep_alive: -1`. Stream and display the response so the user can see loading progress.
+5. Clear the terminal and build the widget UI.
+6. Enter the command input loop.
 
-Steps 2–4 are encapsulated in `OllamaSession.start()`. The startup log is visible to the user before the terminal is cleared, so any errors or warnings from ollama appear naturally.
+Steps 2–3 are encapsulated in `OllamaSession.start()`. Step 4 is called by `init_ollama()` so it can be skipped in dry-run mode. The startup log is visible before the terminal is cleared, so any errors or warnings from ollama appear naturally.
 
 ## Stats Header
 
@@ -77,21 +80,29 @@ Ollama-Session | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
 
 ## System Meters
 
-Three `ValueMeter` widgets render below the header, each updated every second:
+Three `ValueMeter` widgets render inside a `Border` frame below the header, each updated every second:
 
-| Meter | Source | Unit |
-|---|---|---|
-| CPU | `psutil.cpu_percent()` — actual CPU utilization delta | % |
-| GPU | `ioreg -c AGXAccelerator` `"Device Utilization %"` (macOS); `0` elsewhere | % |
-| RAM | `vm_stat` anonymous + wired + compressor pages (macOS); `psutil` `total − available` elsewhere | GB |
+| Meter | Load source | Power source | Unit |
+|---|---|---|---|
+| CPU | `psutil.cpu_percent()` | `sudo powermetrics --samplers cpu_power` | % / W |
+| GPU | `ioreg -c AGXAccelerator` `"Device Utilization %"` (macOS); `0` elsewhere | same `powermetrics` sample | % / W |
+| RAM | `vm_stat` anonymous + wired + compressor pages (macOS); `psutil` `total − available` elsewhere | — | GB |
 
-The percentage value is color-coded: green [0–49%], yellow [50–89%], red [90–100%].
+Each meter shows: progress bar (load %), color-coded percentage, sparkline history, and trailing power in watts (CPU/GPU) or current value (RAM).
+
+Power is sampled by `_PowermetricsSampler`, a background daemon thread that runs `sudo powermetrics` continuously and caches the latest CPU/GPU watt values behind a lock. Getters read from the cache non-blockingly.
 
 See [meter.md](meter.md) for full `ValueMeter` documentation.
 
+## Widget Render Loop
+
+All widgets implement `tick(now: float)`. The update loop calls every widget's `tick()` once per second, then flushes stdout once. Flushing after all widgets have drawn (rather than per widget) ensures the terminal receives a complete frame atomically — preventing visible flicker between intermediate states.
+
+`_build_sorted_list` sorts regular widgets by `_row` and appends `Border` instances last so their frame chars always render on top of content.
+
 ## Agent Hints
 
-Below the meters, the UI displays a static section showing how to connect an AI agent to the running model:
+Below the meter border, the UI displays a static section showing how to connect an AI agent to the running model:
 
 ```
 ─── How to run using an agent ───────────────────────────────────────────────────
@@ -113,8 +124,6 @@ After the stats header is shown, the script reads user input line by line:
 
 No user-facing commands are defined yet other than the termination mechanism described below.
 
-Command handler architecture must allow new `/`-prefixed commands (e.g. `/help`, `/reset`, `/history`) to be registered without restructuring the input loop.
-
 ## Termination
 
 | Trigger | Behavior |
@@ -123,10 +132,9 @@ Command handler architecture must allow new `/`-prefixed commands (e.g. `/help`,
 | Script killed / terminal closed | `atexit` registration ensures graceful shutdown runs on normal and `sys.exit()` paths. |
 
 **Graceful shutdown sequence:**
-1. Call `SessionHeader.stop()` to end the live updater thread.
-2. Unload the model via POST `/api/generate` with `keep_alive: 0`.
-3. If the script started `ollama serve` itself, terminate that subprocess. If ollama was already running when the script started, leave it running.
-4. Restore the terminal to a clean state (cursor visible, no dangling ANSI codes).
+1. Unload the model via POST `/api/generate` with `keep_alive: 0`.
+2. If the script started `ollama serve` itself, terminate that subprocess. If ollama was already running when the script started, leave it running.
+3. Restore the terminal to a clean state (cursor visible, no dangling ANSI codes).
 
 ## Out of Scope for This Iteration
 

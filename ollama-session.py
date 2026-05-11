@@ -19,6 +19,7 @@ import psutil
 from widgets.header import SessionHeader
 from widgets.meter import ValueMeter
 from widgets.horizontal_text import HorizontalText
+from widgets.border import Border
 
 
 OLLAMA_BASE_URL = "http://localhost:11434"
@@ -31,8 +32,12 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Start a persistent local LLM session via ollama."
     )
-    parser.add_argument("--model", required=True, help="Ollama model name to load")
-    return parser.parse_args()
+    parser.add_argument("--model", default=None, help="Ollama model name to load")
+    parser.add_argument("--dry-run", action="store_true", help="Start UI without loading a model or server")
+    args = parser.parse_args()
+    if not args.dry_run and args.model is None:
+        parser.error("--model is required unless --dry-run is specified")
+    return args
 
 
 def http_get(path, timeout=5):
@@ -60,8 +65,6 @@ class OllamaSession:
         self._serve_process = self._ensure_server_running()
         self._version = self._fetch_version()
         print(f"  ollama {self._version}", flush=True)
-        print(f"Loading {self._model_name}...", flush=True)
-        self._preload_model()
 
     def cleanup(self):
         print("\nUnloading model...", flush=True)
@@ -150,9 +153,12 @@ class OllamaSession:
             pass
 
 
-def init_ollama(model_name):
-    ollama = OllamaSession(model_name)
+def init_ollama(model_name, dry_run=False):
+    ollama = OllamaSession(model_name or "(none)")
     ollama.start()
+    if not dry_run:
+        print(f"Loading {ollama._model_name}...", flush=True)
+        ollama._preload_model()
     atexit.register(ollama.cleanup)
     return ollama
 
@@ -167,6 +173,7 @@ def _run_update_loop(updatables: list, stop_event: threading.Event):
         now = time.time()
         for obj in updatables:
             obj.tick(now)
+        sys.stdout.flush()
         stop_event.wait(HEADER_UPDATE_INTERVAL_SECONDS)
 
 
@@ -199,6 +206,44 @@ def _gpu_load_macos():
     return float(match.group(1)) if match else 0.0
 
 
+class _PowermetricsSampler:
+    def __init__(self):
+        self._cpu_w = 0.0
+        self._gpu_w = 0.0
+        self._lock = threading.Lock()
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        while True:
+            try:
+                result = subprocess.run(
+                    ["sudo", "powermetrics", "--samplers", "cpu_power", "-n", "1", "-i", "1000"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                cpu_w = gpu_w = 0.0
+                for line in result.stdout.splitlines():
+                    if line.startswith("CPU Power:"):
+                        cpu_w = float(line.split(":")[1].strip().split()[0]) / 1000
+                    elif line.startswith("GPU Power:"):
+                        gpu_w = float(line.split(":")[1].strip().split()[0]) / 1000
+                with self._lock:
+                    self._cpu_w = cpu_w
+                    self._gpu_w = gpu_w
+            except Exception:
+                pass
+
+    def cpu_w(self) -> str:
+        with self._lock:
+            return f"{self._cpu_w:.1f}"
+
+    def gpu_w(self) -> str:
+        with self._lock:
+            return f"{self._gpu_w:.1f}"
+
+
+_power = _PowermetricsSampler()
+
+
 def cpu_getter(precision=0):
     return f"{psutil.cpu_percent(interval=None):.{precision}f}"
 
@@ -228,12 +273,12 @@ def _build_ui(ollama: OllamaSession) -> list:
 
     lines += [
         SessionHeader(ollama, row=1),
-        HorizontalText("─────────────────────────────────────────────────────────────────────────────────"),
+        Border(row=2, height=5, width=83),
     ]
 
     lines += [
-        ValueMeter("CPU", cpu_getter, 100.0, unit="%"),
-        ValueMeter("GPU", gpu_getter, 100.0, unit="%"),
+        ValueMeter("CPU", cpu_getter, 100.0, unit="%", secondary_getter=_power.cpu_w, secondary_unit="W"),
+        ValueMeter("GPU", gpu_getter, 100.0, unit="%", secondary_getter=_power.gpu_w, secondary_unit="W"),
         ValueMeter("RAM", ram_getter, psutil.virtual_memory().total / (1024**3), unit="GB"),
     ]
 
@@ -275,7 +320,10 @@ def _build_sorted_list(updatables) -> list:
             meter._row = next_auto_row
             next_auto_row += 1
 
-    return sorted(fixed + auto, key=lambda m: m._row)
+    all_widgets = fixed + auto
+    overlays = [m for m in all_widgets if isinstance(m, Border)]
+    regular  = [m for m in all_widgets if not isinstance(m, Border)]
+    return sorted(regular, key=lambda m: m._row) + overlays
 
 
 def start_session_ui(ollama: OllamaSession):
@@ -312,7 +360,7 @@ def run_input_loop(stop_event: threading.Event):
 def main():
     atexit.register(restore_terminal)
     args = parse_args()
-    ollama = init_ollama(args.model)
+    ollama = init_ollama(args.model, dry_run=args.dry_run)
     stop_event = start_session_ui(ollama)
     run_input_loop(stop_event)
 

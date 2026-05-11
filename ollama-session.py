@@ -241,9 +241,6 @@ class _PowermetricsSampler:
             return f"{self._gpu_w:.1f}"
 
 
-_power = _PowermetricsSampler()
-
-
 def cpu_getter(precision=0):
     return f"{psutil.cpu_percent(interval=None):.{precision}f}"
 
@@ -267,6 +264,7 @@ def _build_ui(ollama: OllamaSession) -> list:
     """Build and initialize all updatable UI objects. Must be called after terminal is cleared."""
 
     lines = []
+    power = _PowermetricsSampler()
 
     # Seed the measurement so the first real call returns a delta, not 0.0
     psutil.cpu_percent(interval=None)
@@ -277,8 +275,8 @@ def _build_ui(ollama: OllamaSession) -> list:
     ]
 
     lines += [
-        ValueMeter("CPU", cpu_getter, 100.0, unit="%", secondary_getter=_power.cpu_w, secondary_unit="W"),
-        ValueMeter("GPU", gpu_getter, 100.0, unit="%", secondary_getter=_power.gpu_w, secondary_unit="W"),
+        ValueMeter("CPU", cpu_getter, 100.0, unit="%", secondary_getter=power.cpu_w, secondary_unit="W"),
+        ValueMeter("GPU", gpu_getter, 100.0, unit="%", secondary_getter=power.gpu_w, secondary_unit="W"),
         ValueMeter("RAM", ram_getter, psutil.virtual_memory().total / (1024**3), unit="GB"),
     ]
 

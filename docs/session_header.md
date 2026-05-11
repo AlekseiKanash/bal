@@ -19,16 +19,16 @@ Ollama-Session | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
 SessionHeader(ollama: OllamaSession, row: int | None = None)
 ```
 
-Accepts an `OllamaSession` instance and reads `_version` and `_model_name` from it at render time. `row` is the terminal row to pin to; `None` means it will be assigned by `_build_sorted_list`. Does not touch the terminal or start any threads. Safe to construct before the terminal is cleared.
+Accepts an `OllamaSession` instance and reads `_version` and `_model_name` from it at render time. `row` is the terminal row to pin to; `None` means it will be assigned by `_build_sorted_list`. Records the session start time. Does not touch the terminal or start any threads. Safe to construct before the terminal is cleared.
 
 ## Lifecycle
 
 ```
-SessionHeader(ollama, row=1)     ← construct early, no side effects
+SessionHeader(ollama, row=1)     ← construct; records start time, no side effects
         │
         │  (clear terminal here)
         │
-    header.start()               ← records start time, renders assigned row once
+    header.start()               ← no-op; reserved for future use
         │
         │  caller drives the update loop and calls header.tick(now) on each tick
         │
@@ -37,7 +37,7 @@ SessionHeader(ollama, row=1)     ← construct early, no side effects
 
 ### `start()`
 
-Records the session start time and calls `tick(start_time)` once for the initial render. Must be called after the terminal has been cleared so the target row is available.
+Currently a no-op stub. Reserved for any future initialisation that must run after the terminal is cleared.
 
 ### `tick(now: float)`
 

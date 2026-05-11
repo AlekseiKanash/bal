@@ -5,13 +5,13 @@
 
 ## Purpose
 
-Renders a single line of text pinned to a fixed terminal row.
+Renders a single line of static text pinned to a fixed terminal row. Draws once on the first tick and skips all subsequent calls — text never changes at runtime so there is nothing to update.
 
 ```
 Some Text
 ```
 
-`HorizontalText` is a pure display object — it owns no threads. The caller drives updates by calling `tick(now)` at the desired interval.
+`HorizontalText` is a pure display object — it owns no threads.
 
 ## Constructor
 
@@ -21,20 +21,14 @@ HorizontalText(text: str, row: int | None = None)
 
 | Parameter | Description |
 |---|---|
-| `text` | The text string to render on each tick |
+| `text` | The text string to render |
 | `row` | Terminal row to render at; `None` = auto-assigned by `_build_sorted_list` |
 
-## Lifecycle
-
-```
-HorizontalText("Some Text")           ← construct early, no side effects
-        │
-    header.tick(now)                  ← renders text at assigned row on each tick
-```
+## Methods
 
 ### `tick(now: float)`
 
-Writes `text` to the assigned row without disturbing the cursor position the user sees. The ANSI sequence used:
+Draws `text` to the assigned row on the first call, then becomes a no-op. The ANSI sequence used on the first call:
 
 | ANSI code | Effect |
 |---|---|

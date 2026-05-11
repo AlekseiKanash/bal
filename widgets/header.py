@@ -19,7 +19,6 @@ class SessionHeader:
     def start(self):
         """Record start time and do the initial render. Call after terminal is cleared."""
 
-
     def tick(self, now: float) -> None:
         """Re-render the header line in-place using ANSI save/restore cursor."""
         elapsed = now - self._start_time
@@ -30,4 +29,3 @@ class SessionHeader:
             f" | Running: {time_str}"
         )
         sys.stdout.write(f"\033[s\033[{self._row};1H\033[2K{line}\033[u")
-        sys.stdout.flush()

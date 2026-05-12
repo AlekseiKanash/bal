@@ -234,30 +234,44 @@ class OmlxSession:
         pass
 
 
+def _scan_ollama_models():
+    manifests_dir = os.path.expanduser("~/.ollama/models/manifests")
+    if not os.path.isdir(manifests_dir):
+        return None
+    models = []
+    for root, _dirs, files in os.walk(manifests_dir):
+        for fname in files:
+            rel = os.path.relpath(os.path.join(root, fname), manifests_dir)
+            parts = rel.split(os.sep)
+            if len(parts) == 4:
+                registry, namespace, model, tag = parts
+                if registry == "registry.ollama.ai" and namespace == "library":
+                    models.append(f"{model}:{tag}")
+                else:
+                    models.append(f"{registry}/{namespace}/{model}:{tag}")
+    return sorted(models)
+
+
 def list_models():
     script = os.path.basename(sys.argv[0])
     col = 44  # model name column width
 
     print("Available models:\n")
 
-    # ollama — query the running server
+    # ollama — scan manifest files on disk
     print("ollama")
-    try:
-        body = http_get("/api/tags", timeout=3)
-        models = json.loads(body).get("models", [])
-        if models:
-            for m in models:
-                name = m["name"]
-                cmd = f"{script} --model {name}"
-                print(f"     {name:<{col}} {cmd}")
-        else:
-            print("     (no models)")
-    except Exception:
-        print("     (not running)")
+    ollama_models = _scan_ollama_models()
+    if ollama_models is None:
+        print(f"     (directory not found: ~/.ollama/models/manifests)")
+    elif ollama_models:
+        for name in ollama_models:
+            print(f"     {name:<{col}} {script} --model {name}")
+    else:
+        print("     (no models)")
 
     print()
 
-    # omlx — scan model directory (API requires auth, filesystem is always available)
+    # omlx — scan model directory on disk
     print("omlx")
     model_dir = os.path.expanduser("~/.omlx/models")
     if os.path.isdir(model_dir):
@@ -267,12 +281,11 @@ def list_models():
         )
         if entries:
             for name in entries:
-                cmd = f"{script} --model {name} --backend omlx"
-                print(f"     {name:<{col}} {cmd}")
+                print(f"     {name:<{col}} {script} --model {name} --backend omlx")
         else:
             print("     (no models)")
     else:
-        print(f"     (model dir not found: {model_dir})")
+        print(f"     (directory not found: {model_dir})")
 
 
 def init_session(backend, model_name, model_dir=None, dry_run=False):

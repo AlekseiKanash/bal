@@ -201,12 +201,7 @@ class OmlxSession:
                 self._serve_process.kill()
 
     def launch_command(self, agent, model_name):
-        key = self._api_key
-        url = self._server_url
-        if agent == "claude":
-            return f"ANTHROPIC_BASE_URL={url} ANTHROPIC_AUTH_TOKEN={key} claude --model {model_name}"
-        else:
-            return f"OPENAI_API_KEY={key} OPENAI_BASE_URL={url}/v1 {agent} --model {model_name}"
+        return f"omlx launch {agent} --model {model_name} --api-key {self._api_key}"
 
     def _load_settings(self):
         try:

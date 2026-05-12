@@ -185,15 +185,13 @@ Below the meter border, the UI displays a static section showing how to connect 
   ...
 ```
 
-**omlx:** omlx requires API key authentication, so the commands include the necessary environment variables read from `~/.omlx/settings.json`. `claude` uses Anthropic env vars; all other agents use OpenAI-compatible env vars:
+**omlx:** uses `omlx launch` which handles env var injection internally; `--api-key` is read from `~/.omlx/settings.json` (`auth.api_key`):
 ```
-  ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=<key> claude --model <model-name>
-  OPENAI_API_KEY=<key> OPENAI_BASE_URL=http://127.0.0.1:8000/v1 codex --model <model-name>
-  OPENAI_API_KEY=<key> OPENAI_BASE_URL=http://127.0.0.1:8000/v1 opencode --model <model-name>
-  OPENAI_API_KEY=<key> OPENAI_BASE_URL=http://127.0.0.1:8000/v1 openclaw --model <model-name>
+  omlx launch claude --model <model-name> --api-key <key>
+  omlx launch codex --model <model-name> --api-key <key>
+  omlx launch opencode --model <model-name> --api-key <key>
+  omlx launch openclaw --model <model-name> --api-key <key>
 ```
-
-The host, port, and API key are read from `~/.omlx/settings.json` (`server.host`, `server.port`, `auth.api_key`).
 
 ## Input Loop
 

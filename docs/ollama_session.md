@@ -41,7 +41,7 @@ Registered with `atexit` by `init_session()` so it runs on both normal exit and 
 Returns the shell command to connect an agent to the running server:
 
 - **OllamaSession**: `ollama launch <agent> --model <model>`
-- **OmlxSession**: injects the required environment variables read from `~/.omlx/settings.json`; `claude` gets `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`, all others get `OPENAI_API_KEY` / `OPENAI_BASE_URL`.
+- **OmlxSession**: `omlx launch <agent> --model <model> --api-key <key>` — `omlx launch` handles env var injection internally; the key is read from `~/.omlx/settings.json`.
 
 ### `_preload_model()`
 

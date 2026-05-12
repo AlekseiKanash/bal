@@ -188,6 +188,8 @@ class OmlxSession:
         try:
             http_get("/v1/models", timeout=2, base_url=OMLX_BASE_URL)
             return True
+        except urllib.error.HTTPError:
+            return True  # any HTTP response means the server is listening
         except Exception:
             return False
 

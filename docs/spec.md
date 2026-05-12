@@ -92,11 +92,13 @@ Key endpoints used:
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/v1/models` | GET | Health check — returns a JSON list of available models |
+| `/v1/models` | GET | Health check — any HTTP response (including 401) confirms the server is listening |
 
 Version is read by running `omlx --version` as a subprocess.
 
 Model preloading and unloading are not performed via the API — omlx auto-loads models on first request and uses LRU eviction when memory pressure requires it.
+
+**API key authentication:** omlx enables API key auth by default, so `GET /v1/models` returns 401 when no key is supplied. The health check treats any HTTP-level response as "server is up" — only connection-level failures (refused, timeout) count as "not running".
 
 omlx is commonly kept running as a persistent background service (e.g. via `brew services` or the macOS menu-bar app). When the script finds omlx already listening on port 8000 it attaches to that instance instead of starting a new one.
 

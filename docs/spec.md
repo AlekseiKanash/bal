@@ -53,8 +53,8 @@ Both session classes expose the same interface so the rest of the code is backen
 | `backend_name` | class attr `str` | `"ollama"` or `"omlx"` |
 | `_model_name` | instance attr `str` | Model name passed via `--model` |
 | `_version` | instance attr `str \| None` | Server version; populated by `start()` |
-| `start()` | method | Start the server, populate `_version` |
-| `cleanup()` | method | Unload the model and stop the server |
+| `start()` | method | Start or attach to the server, populate `_version` |
+| `cleanup()` | method | Unload the model and stop the server (if we started it) |
 | `_preload_model()` | method | Load the model (no-op for omlx) |
 | `_unload_model()` | method | Unload the model (no-op for omlx) |
 
@@ -98,12 +98,16 @@ Version is read by running `omlx --version` as a subprocess.
 
 Model preloading and unloading are not performed via the API — omlx auto-loads models on first request and uses LRU eviction when memory pressure requires it.
 
+omlx is commonly kept running as a persistent background service (e.g. via `brew services` or the macOS menu-bar app). When the script finds omlx already listening on port 8000 it attaches to that instance instead of starting a new one.
+
 ## Startup Sequence
 
 1. Parse CLI arguments. Exit with a clear error if `--model` is missing and `--dry-run` is not set.
 2. Check if the backend server is already running using its health endpoint.
-   - If not running: start the server as a background subprocess and poll the health endpoint until it responds (up to 30 seconds).
-   - If already running: log the issue and exit with code 1.
+   - **ollama — already running**: exit with code 1 (the script wants exclusive control for model lifecycle management).
+   - **ollama — not running**: start `ollama serve` as a background subprocess and poll the health endpoint until it responds (up to 30 seconds).
+   - **omlx — already running**: attach to the existing instance; `_serve_process` remains `None` so cleanup will not stop it.
+   - **omlx — not running**: start `omlx serve --model-dir <path>` as a background subprocess and poll until ready (up to 30 seconds).
 3. Retrieve the server version.
 4. Unless `--dry-run`: load the model into memory. For ollama this streams progress to stdout; for omlx this is a no-op.
 5. Clear the terminal and build the widget UI.
@@ -119,7 +123,7 @@ The header is displayed on the first line of the terminal and updated in-place e
 
 ```
 Ollama-Session | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
-Ollama-Session | omlx 1.2.0   | Loaded: llama3 | Running: 0:02:34
+Ollama-Session | omlx 0.3.8   | Loaded: llama3 | Running: 0:02:34
 ```
 
 The backend name in the header comes from the session's `backend_name` attribute.
@@ -190,7 +194,7 @@ No user-facing commands are defined yet other than the termination mechanism des
 3. Restore the terminal to a clean state (cursor visible, no dangling ANSI codes).
 
 **Graceful shutdown sequence (omlx):**
-1. If the script started `omlx serve` itself, terminate that subprocess. If omlx was already running, leave it running.
+1. If the script started `omlx serve` itself, terminate that subprocess. If the script attached to a pre-existing omlx instance, leave it running.
 2. Restore the terminal to a clean state.
 
 ## Out of Scope for This Iteration

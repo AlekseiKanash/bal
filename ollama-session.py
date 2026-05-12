@@ -175,6 +175,7 @@ class OmlxSession:
         print(f"  omlx {self._version}", flush=True)
 
     def cleanup(self):
+        # Only stop the server if this session started it; leave pre-existing servers alone.
         if self._serve_process is not None and self._serve_process.poll() is None:
             print("\nStopping omlx server...", flush=True)
             self._serve_process.terminate()
@@ -208,8 +209,9 @@ class OmlxSession:
     def _ensure_server_running(self):
         print("Checking omlx server...", flush=True)
         if self._is_server_running():
-            print("  Already running. Exiting.", flush=True)
-            sys.exit(1)
+            # omlx is commonly kept running as a service; attach to the existing instance.
+            print("  Attached to running server.", flush=True)
+            return None
         print("  Starting omlx serve...", flush=True)
         process = self._start_server()
         if not self._wait_for_server_ready():

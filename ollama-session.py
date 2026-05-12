@@ -234,6 +234,47 @@ class OmlxSession:
         pass
 
 
+def list_models():
+    script = os.path.basename(sys.argv[0])
+    col = 44  # model name column width
+
+    print("Available models:\n")
+
+    # ollama — query the running server
+    print("ollama")
+    try:
+        body = http_get("/api/tags", timeout=3)
+        models = json.loads(body).get("models", [])
+        if models:
+            for m in models:
+                name = m["name"]
+                cmd = f"{script} --model {name}"
+                print(f"     {name:<{col}} {cmd}")
+        else:
+            print("     (no models)")
+    except Exception:
+        print("     (not running)")
+
+    print()
+
+    # omlx — scan model directory (API requires auth, filesystem is always available)
+    print("omlx")
+    model_dir = os.path.expanduser("~/.omlx/models")
+    if os.path.isdir(model_dir):
+        entries = sorted(
+            e for e in os.listdir(model_dir)
+            if os.path.isdir(os.path.join(model_dir, e))
+        )
+        if entries:
+            for name in entries:
+                cmd = f"{script} --model {name} --backend omlx"
+                print(f"     {name:<{col}} {cmd}")
+        else:
+            print("     (no models)")
+    else:
+        print(f"     (model dir not found: {model_dir})")
+
+
 def init_session(backend, model_name, model_dir=None, dry_run=False):
     if backend == "omlx":
         session = OmlxSession(model_name or "(none)", model_dir=model_dir)
@@ -441,6 +482,10 @@ def run_input_loop(stop_event: threading.Event):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "list":
+        list_models()
+        return
+
     atexit.register(restore_terminal)
     args = parse_args()
     session = init_session(args.backend, args.model, model_dir=args.model_dir, dry_run=args.dry_run)

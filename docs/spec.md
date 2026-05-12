@@ -14,9 +14,29 @@ Two backends are supported:
 ## Usage
 
 ```
+python ollama-session.py list
 python ollama-session.py --model <model-name> [--backend ollama|omlx] [--model-dir <path>]
 python ollama-session.py --dry-run [--model <model-name>] [--backend ollama|omlx]
 ```
+
+### `list` command
+
+Prints all available models for every backend and the exact command to start a session with each one:
+
+```
+Available models:
+
+ollama
+     llama3:latest                                ollama-session.py --model llama3:latest
+omlx
+     Qwen3.6-35B-A3B-MLX-8bit                    ollama-session.py --model Qwen3.6-35B-A3B-MLX-8bit --backend omlx
+     Qwen3.6-35B-A3B-UD-MLX-4bit                 ollama-session.py --model Qwen3.6-35B-A3B-UD-MLX-4bit --backend omlx
+```
+
+- **ollama**: queries `GET /api/tags` on the running server; shows `(not running)` if unavailable.
+- **omlx**: scans `~/.omlx/models` on the filesystem — does not require the server to be running or an API key.
+
+### Session flags
 
 | Flag | Required | Default | Description |
 |---|---|---|---|

@@ -84,6 +84,9 @@ class OllamaSession:
             except subprocess.TimeoutExpired:
                 self._serve_process.kill()
 
+    def launch_command(self, agent, model_name):
+        return f"ollama launch {agent} --model {model_name}"
+
     def _is_server_running(self):
         try:
             http_get("/", timeout=2)
@@ -163,11 +166,24 @@ class OllamaSession:
 class OmlxSession:
     backend_name = "omlx"
 
+    _SETTINGS_PATH = os.path.expanduser("~/.omlx/settings.json")
+
     def __init__(self, model_name, model_dir=None):
         self._model_name = model_name
-        self._model_dir = model_dir or os.path.expanduser("~/.omlx/models")
         self._version = None
         self._serve_process = None
+
+        settings = self._load_settings()
+        self._api_key = settings.get("auth", {}).get("api_key", "")
+        server = settings.get("server", {})
+        host = server.get("host", "127.0.0.1")
+        port = server.get("port", 8000)
+        self._server_url = f"http://{host}:{port}"
+        self._model_dir = (
+            model_dir
+            or settings.get("model", {}).get("model_dir")
+            or os.path.expanduser("~/.omlx/models")
+        )
 
     def start(self):
         self._serve_process = self._ensure_server_running()
@@ -184,9 +200,24 @@ class OmlxSession:
             except subprocess.TimeoutExpired:
                 self._serve_process.kill()
 
+    def launch_command(self, agent, model_name):
+        key = self._api_key
+        url = self._server_url
+        if agent == "claude":
+            return f"ANTHROPIC_BASE_URL={url} ANTHROPIC_AUTH_TOKEN={key} claude --model {model_name}"
+        else:
+            return f"OPENAI_API_KEY={key} OPENAI_BASE_URL={url}/v1 {agent} --model {model_name}"
+
+    def _load_settings(self):
+        try:
+            with open(self._SETTINGS_PATH) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
     def _is_server_running(self):
         try:
-            http_get("/v1/models", timeout=2, base_url=OMLX_BASE_URL)
+            http_get("/v1/models", timeout=2, base_url=self._server_url)
             return True
         except urllib.error.HTTPError:
             return True  # any HTTP response means the server is listening
@@ -419,20 +450,14 @@ def _build_ui(session) -> list:
     ]
 
     model_name = session._model_name
-    agents = [
-        "claude",
-        "codex",
-        "opencode",
-        "openclaw",
-    ]
+    agents = ["claude", "codex", "opencode", "openclaw"]
     lines += [
         HorizontalText(""),
         HorizontalText("─── How to run using an agent ───────────────────────────────────────────────────"),
         HorizontalText(""),
     ]
-    cmd_prefix = session.backend_name
     lines += [
-        HorizontalText(f"  {cmd_prefix} launch {agent} --model {model_name}")
+        HorizontalText(f"  {session.launch_command(agent, model_name)}")
         for agent in agents
     ]
 

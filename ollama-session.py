@@ -23,6 +23,7 @@ from widgets.border import Border
 
 
 OLLAMA_BASE_URL = "http://localhost:11434"
+OMLX_BASE_URL = "http://localhost:8000"
 
 HEADER_UPDATE_INTERVAL_SECONDS = 1
 INPUT_PROMPT = "> "
@@ -30,25 +31,29 @@ INPUT_PROMPT = "> "
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Start a persistent local LLM session via ollama."
+        description="Start a persistent local LLM session via ollama or omlx."
     )
-    parser.add_argument("--model", default=None, help="Ollama model name to load")
+    parser.add_argument("--model", default=None, help="Model name to load")
     parser.add_argument("--dry-run", action="store_true", help="Start UI without loading a model or server")
+    parser.add_argument("--backend", default="ollama", choices=["ollama", "omlx"],
+                        help="LLM backend to use (default: ollama)")
+    parser.add_argument("--model-dir", default=None,
+                        help="Model directory for omlx backend")
     args = parser.parse_args()
     if not args.dry_run and args.model is None:
         parser.error("--model is required unless --dry-run is specified")
     return args
 
 
-def http_get(path, timeout=5):
-    with urllib.request.urlopen(OLLAMA_BASE_URL + path, timeout=timeout) as resp:
+def http_get(path, timeout=5, base_url=OLLAMA_BASE_URL):
+    with urllib.request.urlopen(base_url + path, timeout=timeout) as resp:
         return resp.read().decode()
 
 
-def http_post(path, payload, timeout=30):
+def http_post(path, payload, timeout=30, base_url=OLLAMA_BASE_URL):
     body = json.dumps(payload).encode()
     req = urllib.request.Request(
-        OLLAMA_BASE_URL + path,
+        base_url + path,
         data=body,
         headers={"Content-Type": "application/json"},
     )
@@ -56,6 +61,8 @@ def http_post(path, payload, timeout=30):
 
 
 class OllamaSession:
+    backend_name = "ollama"
+
     def __init__(self, model_name):
         self._model_name = model_name
         self._version = None
@@ -153,14 +160,91 @@ class OllamaSession:
             pass
 
 
-def init_ollama(model_name, dry_run=False):
-    ollama = OllamaSession(model_name or "(none)")
-    ollama.start()
+class OmlxSession:
+    backend_name = "omlx"
+
+    def __init__(self, model_name, model_dir=None):
+        self._model_name = model_name
+        self._model_dir = model_dir or os.path.expanduser("~/.omlx/models")
+        self._version = None
+        self._serve_process = None
+
+    def start(self):
+        self._serve_process = self._ensure_server_running()
+        self._version = self._fetch_version()
+        print(f"  omlx {self._version}", flush=True)
+
+    def cleanup(self):
+        if self._serve_process is not None and self._serve_process.poll() is None:
+            print("\nStopping omlx server...", flush=True)
+            self._serve_process.terminate()
+            try:
+                self._serve_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._serve_process.kill()
+
+    def _is_server_running(self):
+        try:
+            http_get("/v1/models", timeout=2, base_url=OMLX_BASE_URL)
+            return True
+        except Exception:
+            return False
+
+    def _wait_for_server_ready(self):
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if self._is_server_running():
+                return True
+            time.sleep(0.5)
+        return False
+
+    def _start_server(self):
+        return subprocess.Popen(
+            ["omlx", "serve", "--model-dir", self._model_dir],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def _ensure_server_running(self):
+        print("Checking omlx server...", flush=True)
+        if self._is_server_running():
+            print("  Already running. Exiting.", flush=True)
+            sys.exit(1)
+        print("  Starting omlx serve...", flush=True)
+        process = self._start_server()
+        if not self._wait_for_server_ready():
+            print("Error: omlx server did not start in time.", file=sys.stderr)
+            sys.exit(1)
+        print("  Server ready.", flush=True)
+        return process
+
+    def _fetch_version(self):
+        try:
+            result = subprocess.run(
+                ["omlx", "--version"], capture_output=True, text=True, timeout=5
+            )
+            return result.stdout.strip().split()[-1]
+        except Exception:
+            return "unknown"
+
+    def _preload_model(self):
+        pass
+
+    def _unload_model(self):
+        pass
+
+
+def init_session(backend, model_name, model_dir=None, dry_run=False):
+    if backend == "omlx":
+        session = OmlxSession(model_name or "(none)", model_dir=model_dir)
+    else:
+        session = OllamaSession(model_name or "(none)")
+    session.start()
     if not dry_run:
-        print(f"Loading {ollama._model_name}...", flush=True)
-        ollama._preload_model()
-    atexit.register(ollama.cleanup)
-    return ollama
+        print(f"Loading {session._model_name}...", flush=True)
+        session._preload_model()
+    atexit.register(session.cleanup)
+    return session
 
 
 def restore_terminal():
@@ -260,7 +344,7 @@ def ram_getter(precision=1):
     return f"{used_gb:.{precision}f}"
 
 
-def _build_ui(ollama: OllamaSession) -> list:
+def _build_ui(session) -> list:
     """Build and initialize all updatable UI objects. Must be called after terminal is cleared."""
 
     lines = []
@@ -270,7 +354,7 @@ def _build_ui(ollama: OllamaSession) -> list:
     psutil.cpu_percent(interval=None)
 
     lines += [
-        SessionHeader(ollama, row=1),
+        SessionHeader(session, row=1),
         Border(row=2, height=5, width=83),
     ]
 
@@ -280,7 +364,7 @@ def _build_ui(ollama: OllamaSession) -> list:
         ValueMeter("RAM", ram_getter, psutil.virtual_memory().total / (1024**3), unit="GB"),
     ]
 
-    model_name = ollama._model_name
+    model_name = session._model_name
     agents = [
         "claude",
         "codex",
@@ -292,8 +376,9 @@ def _build_ui(ollama: OllamaSession) -> list:
         HorizontalText("─── How to run using an agent ───────────────────────────────────────────────────"),
         HorizontalText(""),
     ]
+    cmd_prefix = session.backend_name
     lines += [
-        HorizontalText(f"  ollama launch {agent} --model {model_name}")
+        HorizontalText(f"  {cmd_prefix} launch {agent} --model {model_name}")
         for agent in agents
     ]
 
@@ -324,9 +409,9 @@ def _build_sorted_list(updatables) -> list:
     return sorted(regular, key=lambda m: m._row) + overlays
 
 
-def start_session_ui(ollama: OllamaSession):
+def start_session_ui(session):
     os.system("clear")
-    updatables = _build_ui(ollama)
+    updatables = _build_ui(session)
     sys.stdout.write("\n" * len(updatables))
     sys.stdout.flush()
     stop_event = threading.Event()
@@ -358,8 +443,8 @@ def run_input_loop(stop_event: threading.Event):
 def main():
     atexit.register(restore_terminal)
     args = parse_args()
-    ollama = init_ollama(args.model, dry_run=args.dry_run)
-    stop_event = start_session_ui(ollama)
+    session = init_session(args.backend, args.model, model_dir=args.model_dir, dry_run=args.dry_run)
+    stop_event = start_session_ui(session)
     run_input_loop(stop_event)
 
 

@@ -24,7 +24,7 @@ class SessionHeader:
         elapsed = now - self._start_time
         time_str = _format_elapsed_time(elapsed)
         line = (
-            f"Ollama-Session | ollama {self._ollama._version}"
+            f"Ollama-Session | {self._ollama.backend_name} {self._ollama._version}"
             f" | Loaded: {self._ollama._model_name}"
             f" | Running: {time_str}"
         )

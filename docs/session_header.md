@@ -5,10 +5,11 @@
 
 ## Purpose
 
-Renders and updates the stats line pinned to a fixed terminal row. The line shows the ollama version, the loaded model name, and a live elapsed-time counter.
+Renders and updates the stats line pinned to a fixed terminal row. The line shows the backend name and version, the loaded model name, and a live elapsed-time counter.
 
 ```
 Ollama-Session | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
+Ollama-Session | omlx 1.2.0   | Loaded: llama3 | Running: 0:02:34
 ```
 
 `SessionHeader` is a pure display object — it owns no threads. The caller is responsible for driving updates by calling `tick(now)` at the desired interval.
@@ -16,15 +17,15 @@ Ollama-Session | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
 ## Constructor
 
 ```python
-SessionHeader(ollama: OllamaSession, row: int | None = None)
+SessionHeader(session, row: int | None = None)
 ```
 
-Accepts an `OllamaSession` instance and reads `_version` and `_model_name` from it at render time. `row` is the terminal row to pin to; `None` means it will be assigned by `_build_sorted_list`. Records the session start time. Does not touch the terminal or start any threads. Safe to construct before the terminal is cleared.
+Accepts any backend session instance (`OllamaSession` or `OmlxSession`) and reads `backend_name`, `_version`, and `_model_name` from it at render time. `row` is the terminal row to pin to; `None` means it will be assigned by `_build_sorted_list`. Records the session start time. Does not touch the terminal or start any threads. Safe to construct before the terminal is cleared.
 
 ## Lifecycle
 
 ```
-SessionHeader(ollama, row=1)     ← construct; records start time, no side effects
+SessionHeader(session, row=1)    ← construct; records start time, no side effects
         │
         │  (clear terminal here)
         │

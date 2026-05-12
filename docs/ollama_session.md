@@ -36,6 +36,13 @@ For `OllamaSession`, also unloads the model first via POST `/api/generate` with 
 
 Registered with `atexit` by `init_session()` so it runs on both normal exit and `sys.exit()`.
 
+### `launch_command(agent, model_name)`
+
+Returns the shell command to connect an agent to the running server:
+
+- **OllamaSession**: `ollama launch <agent> --model <model>`
+- **OmlxSession**: injects the required environment variables read from `~/.omlx/settings.json`; `claude` gets `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`, all others get `OPENAI_API_KEY` / `OPENAI_BASE_URL`.
+
 ### `_preload_model()`
 
 Loads the model into memory.

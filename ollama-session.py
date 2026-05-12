@@ -200,11 +200,7 @@ class OmlxSession:
         return False
 
     def _start_server(self):
-        return subprocess.Popen(
-            ["omlx", "serve", "--model-dir", self._model_dir],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        return subprocess.Popen(["omlx", "serve", "--model-dir", self._model_dir])
 
     def _ensure_server_running(self):
         print("Checking omlx server...", flush=True)

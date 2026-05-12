@@ -33,8 +33,10 @@ omlx
      Qwen3.6-35B-A3B-UD-MLX-4bit                 ollama-session.py --model Qwen3.6-35B-A3B-UD-MLX-4bit --backend omlx
 ```
 
-- **ollama**: queries `GET /api/tags` on the running server; shows `(not running)` if unavailable.
-- **omlx**: scans `~/.omlx/models` on the filesystem — does not require the server to be running or an API key.
+Both backends are discovered from the filesystem — no server needs to be running.
+
+- **ollama**: walks `~/.ollama/models/manifests/` and collects manifest files; names are reconstructed as `model:tag` for standard library models.
+- **omlx**: lists subdirectories of `~/.omlx/models`.
 
 ### Session flags
 

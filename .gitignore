@@ -1,0 +1,13 @@
+# Python
+*.pyc
+__pycache__
+*.egg-info
+dist
+build
+*.egg
+
+# Virtual envs
+venv/
+
+# setuptools-scm generated version file
+bal/_version.py

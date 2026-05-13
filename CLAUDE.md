@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Python 3 CLI tool (bal — LLM Backend Abstraction Layer) that manages a local LLM session via ollama or omlx: starts the server, loads a model, shows a live stats header, and runs an input loop. Also works as a proxy to launch agents against an already-running backend.
+Python 3 CLI tool (bal — LLM Backend Launcher) that manages a local LLM session via ollama or omlx: starts the server, loads a model, shows a live stats header, and runs an input loop. Also works as a proxy to launch agents against an already-running backend.
 
 ## Project map
 

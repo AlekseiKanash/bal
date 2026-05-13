@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# bal — LLM Backend Abstraction Layer
+# Manages ollama/omlx server lifecycle and proxies agent launch commands.
 
 import argparse
 import atexit

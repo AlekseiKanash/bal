@@ -38,10 +38,7 @@ Registered with `atexit` by `init_session()` so it runs on both normal exit and 
 
 ### `launch_command(agent, model_name)`
 
-Returns the shell command to connect an agent to the running server:
-
-- **OllamaSession**: `ollama launch <agent> --model <model>`
-- **OmlxSession**: `omlx launch <agent> --model <model> --api-key <key>` — `omlx launch` handles env var injection internally; the key is read from `~/.omlx/settings.json`.
+Returns the `ollama-session <agent> <model>` command shown in the UI hint section. Both backends return the same format — the backend-specific command construction lives in `_exec_agent()`, not here.
 
 ### `_preload_model()`
 

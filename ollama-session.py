@@ -28,20 +28,36 @@ OMLX_BASE_URL = "http://localhost:8000"
 HEADER_UPDATE_INTERVAL_SECONDS = 1
 INPUT_PROMPT = "> "
 
+AGENTS = {"claude", "codex", "opencode", "openclaw"}
+
+
+def print_help():
+    print("""\
+usage:
+  ollama-session <agent> [model]          launch agent against running backend
+  ollama-session list                     show available models (no server needed)
+  ollama-session --model <name> [options] start server, load model, show live UI
+
+agents:  claude  codex  opencode  openclaw
+
+server options:
+  --model <name>          model to load (required)
+  --backend ollama|omlx   backend to use (default: ollama)
+  --model-dir <path>      model directory (omlx only)
+  --dry-run               start UI without loading a model or server\
+""")
+
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Start a persistent local LLM session via ollama or omlx."
-    )
-    parser.add_argument("--model", default=None, help="Model name to load")
-    parser.add_argument("--dry-run", action="store_true", help="Start UI without loading a model or server")
-    parser.add_argument("--backend", default="ollama", choices=["ollama", "omlx"],
-                        help="LLM backend to use (default: ollama)")
-    parser.add_argument("--model-dir", default=None,
-                        help="Model directory for omlx backend")
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--model", default=None)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--backend", default="ollama", choices=["ollama", "omlx"])
+    parser.add_argument("--model-dir", default=None)
     args = parser.parse_args()
     if not args.dry_run and args.model is None:
-        parser.error("--model is required unless --dry-run is specified")
+        print_help()
+        sys.exit(1)
     return args
 
 
@@ -59,6 +75,84 @@ def http_post(path, payload, timeout=30, base_url=OLLAMA_BASE_URL):
     )
     return urllib.request.urlopen(req, timeout=timeout)
 
+
+# --- Agent subcommand helpers ---
+
+def _load_omlx_settings():
+    path = os.path.expanduser("~/.omlx/settings.json")
+    try:
+        with open(path) as f:
+            s = json.load(f)
+    except Exception:
+        s = {}
+    api_key = s.get("auth", {}).get("api_key", "")
+    server = s.get("server", {})
+    host = server.get("host", "127.0.0.1")
+    port = server.get("port", 8000)
+    return {"api_key": api_key, "server_url": f"http://{host}:{port}"}
+
+
+def _detect_backend():
+    settings = _load_omlx_settings()
+    try:
+        http_get("/v1/models", timeout=2, base_url=settings["server_url"])
+        return "omlx", settings
+    except urllib.error.HTTPError:
+        return "omlx", settings  # any HTTP response means server is up
+    except Exception:
+        pass
+
+    try:
+        http_get("/", timeout=2, base_url=OLLAMA_BASE_URL)
+        return "ollama", None
+    except Exception:
+        pass
+
+    print("Error: no backend running (tried omlx and ollama).", file=sys.stderr)
+    sys.exit(1)
+
+
+def _resolve_model(backend, settings, model_arg):
+    if model_arg:
+        return model_arg
+    if backend == "omlx":
+        try:
+            body = http_get("/v1/models", timeout=2, base_url=settings["server_url"])
+            data = json.loads(body).get("data", [])
+            if data:
+                return data[0]["id"]
+        except Exception:
+            pass
+    return None
+
+
+def _exec_agent(backend, settings, agent, model):
+    if backend == "omlx":
+        if agent == "claude":
+            env = os.environ.copy()
+            env["ANTHROPIC_BASE_URL"] = settings["server_url"]
+            env["ANTHROPIC_AUTH_TOKEN"] = settings["api_key"]
+            if model:
+                env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+                env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
+                env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
+            env["API_TIMEOUT_MS"] = "3000000"
+            env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+            os.execvpe("claude", ["claude"], env)
+        else:
+            cmd = ["omlx", "launch", agent]
+            if model:
+                cmd += ["--model", model]
+            cmd += ["--api-key", settings["api_key"]]
+            os.execvp("omlx", cmd)
+    else:
+        cmd = ["ollama", "launch", agent]
+        if model:
+            cmd += ["--model", model]
+        os.execvp("ollama", cmd)
+
+
+# --- Session classes ---
 
 class OllamaSession:
     backend_name = "ollama"
@@ -85,7 +179,8 @@ class OllamaSession:
                 self._serve_process.kill()
 
     def launch_command(self, agent, model_name):
-        return f"ollama launch {agent} --model {model_name}"
+        script = os.path.basename(sys.argv[0]).removesuffix(".py")
+        return f"{script} {agent} {model_name}"
 
     def _is_server_running(self):
         try:
@@ -201,7 +296,8 @@ class OmlxSession:
                 self._serve_process.kill()
 
     def launch_command(self, agent, model_name):
-        return f"omlx launch {agent} --model {model_name} --api-key {self._api_key}"
+        script = os.path.basename(sys.argv[0]).removesuffix(".py")
+        return f"{script} {agent} {model_name}"
 
     def _load_settings(self):
         try:
@@ -515,9 +611,21 @@ def run_input_loop(stop_event: threading.Event):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "list":
+    if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help")):
+        print_help()
+        sys.exit(0)
+
+    if sys.argv[1] == "list":
         list_models()
         return
+
+    if sys.argv[1] in AGENTS:
+        agent = sys.argv[1]
+        model_arg = sys.argv[2] if len(sys.argv) > 2 else None
+        backend, settings = _detect_backend()
+        model = _resolve_model(backend, settings, model_arg)
+        _exec_agent(backend, settings, agent, model)
+        return  # unreachable; exec replaces the process
 
     atexit.register(restore_terminal)
     args = parse_args()

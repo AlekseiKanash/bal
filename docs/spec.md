@@ -2,7 +2,10 @@
 
 ## Overview
 
-`ollama-session` is a Python CLI tool that starts a local LLM backend server, loads a chosen model into memory, and provides a clean persistent terminal session for interacting with local LLMs. It manages the full lifecycle: server startup, model loading, the interactive session, model unloading, and server shutdown.
+`ollama-session` is a Python CLI tool with two modes of operation:
+
+1. **Server mode** — starts a local LLM backend, loads a model, and shows a live terminal UI with system metrics and agent launch hints.
+2. **Agent proxy mode** — auto-detects the running backend and `exec`s the appropriate agent command, replacing itself with the agent process.
 
 Two backends are supported:
 
@@ -14,9 +17,22 @@ Two backends are supported:
 ## Usage
 
 ```
-python ollama-session.py list
-python ollama-session.py --model <model-name> [--backend ollama|omlx] [--model-dir <path>]
-python ollama-session.py --dry-run [--model <model-name>] [--backend ollama|omlx]
+ollama-session <agent> [model]          launch agent against running backend
+ollama-session list                     show available models (no server needed)
+ollama-session --model <name> [options] start server, load model, show live UI
+
+agents:  claude  codex  opencode  openclaw
+```
+
+Typical two-terminal workflow:
+
+```
+# Terminal 1 — start server and load model
+ollama-session --model Qwen3 --backend omlx
+
+# Terminal 2 — launch an agent against it
+ollama-session claude
+ollama-session claude Qwen3   # explicit model name
 ```
 
 ### `list` command
@@ -27,10 +43,10 @@ Prints all available models for every backend and the exact command to start a s
 Available models:
 
 ollama
-     llama3:latest                                ollama-session.py --model llama3:latest
+     llama3:latest                                ollama-session --model llama3:latest
 omlx
-     Qwen3.6-35B-A3B-MLX-8bit                    ollama-session.py --model Qwen3.6-35B-A3B-MLX-8bit --backend omlx
-     Qwen3.6-35B-A3B-UD-MLX-4bit                 ollama-session.py --model Qwen3.6-35B-A3B-UD-MLX-4bit --backend omlx
+     Qwen3.6-35B-A3B-MLX-8bit                    ollama-session --model Qwen3.6-35B-A3B-MLX-8bit --backend omlx
+     Qwen3.6-35B-A3B-UD-MLX-4bit                 ollama-session --model Qwen3.6-35B-A3B-UD-MLX-4bit --backend omlx
 ```
 
 Both backends are discovered from the filesystem — no server needs to be running.
@@ -38,7 +54,7 @@ Both backends are discovered from the filesystem — no server needs to be runni
 - **ollama**: walks `~/.ollama/models/manifests/` and collects manifest files; names are reconstructed as `model:tag` for standard library models.
 - **omlx**: lists subdirectories of `~/.omlx/models`.
 
-### Session flags
+### Server mode flags
 
 | Flag | Required | Default | Description |
 |---|---|---|---|
@@ -50,17 +66,17 @@ Both backends are discovered from the filesystem — no server needs to be runni
 Example:
 
 ```
-python ollama-session.py --model llama3
-python ollama-session.py --model llama3 --backend omlx --model-dir ~/models
-python ollama-session.py --dry-run
-python ollama-session.py --dry-run --backend omlx
+ollama-session --model llama3
+ollama-session --model llama3 --backend omlx --model-dir ~/models
+ollama-session --dry-run
+ollama-session --dry-run --backend omlx
 ```
 
 ## Components
 
 | File | Responsibility |
 |---|---|
-| `ollama-session.py` | Entry point. CLI argument parsing, `OllamaSession` / `OmlxSession` classes, session UI orchestration, input loop. See [ollama_session.md](ollama_session.md). |
+| `ollama-session.py` | Entry point. CLI argument parsing, `OllamaSession` / `OmlxSession` classes, session UI orchestration, input loop, agent proxy subcommand. See [ollama_session.md](ollama_session.md). |
 | `widgets/header.py` | `SessionHeader` class — renders and continuously updates the stats line pinned to row 1 of the terminal. See [session_header.md](session_header.md). |
 | `widgets/meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row. See [meter.md](meter.md). |
 | `widgets/horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row. See [horizontal_text.md](horizontal_text.md). |
@@ -124,7 +140,7 @@ Model preloading and unloading are not performed via the API — omlx auto-loads
 
 omlx is commonly kept running as a persistent background service (e.g. via `brew services` or the macOS menu-bar app). When the script finds omlx already listening on port 8000 it attaches to that instance instead of starting a new one.
 
-## Startup Sequence
+## Startup Sequence (Server Mode)
 
 1. Parse CLI arguments. Exit with a clear error if `--model` is missing and `--dry-run` is not set.
 2. Check if the backend server is already running using its health endpoint.
@@ -176,22 +192,38 @@ All widgets implement `tick(now: float)`. The update loop calls every widget's `
 
 ## Agent Hints
 
-Below the meter border, the UI displays a static section showing how to connect an AI agent to the running model. Commands are generated by `session.launch_command(agent, model_name)` and vary by backend.
+Below the meter border, the UI displays a static section showing how to launch each agent against the running model. Commands are generated by `session.launch_command(agent, model_name)` and are identical for both backends:
 
-**ollama:**
 ```
-  ollama launch claude --model <model-name>
-  ollama launch codex --model <model-name>
-  ...
+  ollama-session claude <model-name>
+  ollama-session codex <model-name>
+  ollama-session opencode <model-name>
+  ollama-session openclaw <model-name>
 ```
 
-**omlx:** uses `omlx launch` which handles env var injection internally; `--api-key` is read from `~/.omlx/settings.json` (`auth.api_key`):
-```
-  omlx launch claude --model <model-name> --api-key <key>
-  omlx launch codex --model <model-name> --api-key <key>
-  omlx launch opencode --model <model-name> --api-key <key>
-  omlx launch openclaw --model <model-name> --api-key <key>
-```
+## Agent Proxy Mode
+
+When the first argument is an agent name, the script auto-detects the running backend and `exec`s the appropriate command, replacing itself with the agent process.
+
+**Backend detection order:**
+1. Try `GET {omlx_url}/v1/models` — any HTTP response → omlx
+2. Try `GET http://localhost:11434/` — 200 OK → ollama
+3. Neither responding → error and exit 1
+
+**Model resolution:**
+- Model name provided as second argument → use it directly
+- Omitted + omlx → query `GET /v1/models`, use `data[0].id`
+- Omitted + ollama → omit `--model` from the launch command
+
+**Command construction (`_exec_agent`):**
+
+| Backend | Agent | Command |
+|---|---|---|
+| omlx | `claude` | `os.execvpe("claude", ...)` with `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`, `API_TIMEOUT_MS=3000000`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` |
+| omlx | others | `omlx launch <agent> [--model <model>] --api-key <key>` |
+| ollama | any | `ollama launch <agent> [--model <model>]` |
+
+Settings (`api_key`, `server_url`) are read from `~/.omlx/settings.json` via `_load_omlx_settings()`.
 
 ## Input Loop
 

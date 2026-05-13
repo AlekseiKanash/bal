@@ -1,8 +1,8 @@
-# ollama-session — Specification
+# bal — Specification
 
 ## Overview
 
-`ollama-session` is a Python CLI tool with two modes of operation:
+`bal` (LLM Backend Abstraction Layer) is a Python CLI tool with two modes of operation:
 
 1. **Server mode** — starts a local LLM backend, loads a model, and shows a live terminal UI with system metrics and agent launch hints.
 2. **Agent proxy mode** — auto-detects the running backend and `exec`s the appropriate agent command, replacing itself with the agent process.
@@ -17,9 +17,9 @@ Two backends are supported:
 ## Usage
 
 ```
-ollama-session <agent> [model]          launch agent against running backend
-ollama-session list                     show available models (no server needed)
-ollama-session --model <name> [options] start server, load model, show live UI
+bal <agent> [model]          launch agent against running backend
+bal list                     show available models (no server needed)
+bal --model <name> [options] start server, load model, show live UI
 
 agents:  claude  codex  opencode  openclaw
 ```
@@ -28,11 +28,11 @@ Typical two-terminal workflow:
 
 ```
 # Terminal 1 — start server and load model
-ollama-session --model Qwen3 --backend omlx
+bal --model Qwen3 --backend omlx
 
 # Terminal 2 — launch an agent against it
-ollama-session claude
-ollama-session claude Qwen3   # explicit model name
+bal claude
+bal claude Qwen3   # explicit model name
 ```
 
 ### `list` command
@@ -43,10 +43,10 @@ Prints all available models for every backend and the exact command to start a s
 Available models:
 
 ollama
-     llama3:latest                                ollama-session --model llama3:latest
+     llama3:latest                                bal --model llama3:latest
 omlx
-     Qwen3.6-35B-A3B-MLX-8bit                    ollama-session --model Qwen3.6-35B-A3B-MLX-8bit --backend omlx
-     Qwen3.6-35B-A3B-UD-MLX-4bit                 ollama-session --model Qwen3.6-35B-A3B-UD-MLX-4bit --backend omlx
+     Qwen3.6-35B-A3B-MLX-8bit                    bal --model Qwen3.6-35B-A3B-MLX-8bit --backend omlx
+     Qwen3.6-35B-A3B-UD-MLX-4bit                 bal --model Qwen3.6-35B-A3B-UD-MLX-4bit --backend omlx
 ```
 
 Both backends are discovered from the filesystem — no server needs to be running.
@@ -66,17 +66,17 @@ Both backends are discovered from the filesystem — no server needs to be runni
 Example:
 
 ```
-ollama-session --model llama3
-ollama-session --model llama3 --backend omlx --model-dir ~/models
-ollama-session --dry-run
-ollama-session --dry-run --backend omlx
+bal --model llama3
+bal --model llama3 --backend omlx --model-dir ~/models
+bal --dry-run
+bal --dry-run --backend omlx
 ```
 
 ## Components
 
 | File | Responsibility |
 |---|---|
-| `ollama-session.py` | Entry point. CLI argument parsing, `OllamaSession` / `OmlxSession` classes, session UI orchestration, input loop, agent proxy subcommand. See [ollama_session.md](ollama_session.md). |
+| `bal.py` | Entry point. CLI argument parsing, `OllamaBackend` / `OmlxBackend` classes, session UI orchestration, input loop, agent proxy subcommand. See [backends.md](backends.md). |
 | `widgets/header.py` | `SessionHeader` class — renders and continuously updates the stats line pinned to row 1 of the terminal. See [session_header.md](session_header.md). |
 | `widgets/meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row. See [meter.md](meter.md). |
 | `widgets/horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row. See [horizontal_text.md](horizontal_text.md). |
@@ -84,7 +84,7 @@ ollama-session --dry-run --backend omlx
 
 ## Backend Interface
 
-Both session classes expose the same interface so the rest of the code is backend-agnostic:
+Both backend classes expose the same interface so the rest of the code is backend-agnostic:
 
 | Member | Type | Description |
 |---|---|---|
@@ -153,7 +153,7 @@ omlx is commonly kept running as a persistent background service (e.g. via `brew
 5. Clear the terminal and build the widget UI.
 6. Enter the command input loop.
 
-Steps 2–3 are encapsulated in each session class's `start()`. Step 4 is called by `init_session()` so it can be skipped in dry-run mode. The startup log is visible before the terminal is cleared, so any errors or warnings appear naturally.
+Steps 2–3 are encapsulated in each backend class's `start()`. Step 4 is called by `init_session()` so it can be skipped in dry-run mode. The startup log is visible before the terminal is cleared, so any errors or warnings appear naturally.
 
 ## Stats Header
 
@@ -162,11 +162,11 @@ See [session_header.md](session_header.md) for full documentation of the `Sessio
 The header is displayed on the first line of the terminal and updated in-place every second:
 
 ```
-Ollama-Session | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
-Ollama-Session | omlx 0.3.8   | Loaded: llama3 | Running: 0:02:34
+BAL | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
+BAL | omlx 0.3.8   | Loaded: llama3 | Running: 0:02:34
 ```
 
-The backend name in the header comes from the session's `backend_name` attribute.
+The backend name in the header comes from the backend's `backend_name` attribute.
 
 ## System Meters
 
@@ -192,13 +192,13 @@ All widgets implement `tick(now: float)`. The update loop calls every widget's `
 
 ## Agent Hints
 
-Below the meter border, the UI displays a static section showing how to launch each agent against the running model. Commands are generated by `session.launch_command(agent, model_name)` and are identical for both backends:
+Below the meter border, the UI displays a static section showing how to launch each agent against the running model. Commands are generated by `backend.launch_command(agent, model_name)` and are identical for both backends:
 
 ```
-  ollama-session claude <model-name>
-  ollama-session codex <model-name>
-  ollama-session opencode <model-name>
-  ollama-session openclaw <model-name>
+  bal claude <model-name>
+  bal codex <model-name>
+  bal opencode <model-name>
+  bal openclaw <model-name>
 ```
 
 ## Agent Proxy Mode

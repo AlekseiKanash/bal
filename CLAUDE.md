@@ -1,12 +1,12 @@
 # CLAUDE.md
 
-Python 3 CLI tool that manages a local LLM session via ollama or omlx: starts the server, loads a model, shows a live stats header, and runs an input loop.
+Python 3 CLI tool that manages a local LLM session via ollama or omlx: starts the server, loads a model, shows a live stats header, and runs an input loop. Also works as a proxy to launch agents against an already-running backend.
 
 ## Project map
 
 | File | What it is |
 |---|---|
-| `ollama-session.py` | Entry point. `OllamaSession` / `OmlxSession` classes + CLI arg parsing, session UI, input loop |
+| `ollama-session.py` | Entry point. `OllamaSession` / `OmlxSession` classes + CLI arg parsing, session UI, input loop, agent proxy subcommand |
 | `requirements.txt` | Python dependencies (`psutil`) |
 | `install.sh` | Installs the tool to `~/.local/share/ollama-session/` and creates a wrapper at `~/.local/bin/ollama-session` |
 | `widgets/header.py` | `SessionHeader` class — ANSI stats line pinned to a fixed terminal row |
@@ -20,6 +20,22 @@ Python 3 CLI tool that manages a local LLM session via ollama or omlx: starts th
 | `docs/horizontal_text.md` | `HorizontalText` reference — constructor, `tick()`, ANSI sequence |
 | `docs/border.md` | `Border` reference — constructor, `tick()`, `draw()`, Z-order behavior |
 
+## CLI usage
+
+```
+# Terminal 1 — start server and load model (existing)
+ollama-session --model Qwen3 --backend omlx
+
+# Terminal 2 — launch an agent against the running backend (new)
+ollama-session claude            # auto-detect backend, use loaded model
+ollama-session claude Qwen3      # explicit model
+
+# Subcommands
+ollama-session list              # show available models on disk (no server needed)
+```
+
+Supported agents: `claude`, `codex`, `opencode`, `openclaw`
+
 ## Key facts
 
 - Two backends supported: `ollama` (REST on `http://localhost:11434`) and `omlx` (OpenAI-compatible REST on `http://localhost:8000`); selected via `--backend`
@@ -28,7 +44,7 @@ Python 3 CLI tool that manages a local LLM session via ollama or omlx: starts th
 - CPU/GPU power consumption read by `_PowermetricsSampler` — background daemon thread running `sudo powermetrics`; getters read from a lock-protected cache
 - Each backend class (`OllamaSession`, `OmlxSession`) exposes the same interface: `backend_name`, `_model_name`, `_version`, `start()`, `cleanup()`, `_preload_model()`, `_unload_model()`, `launch_command(agent, model_name)`
 - `OmlxSession` reads `~/.omlx/settings.json` at init time for `auth.api_key`, `server.host`, `server.port`, and `model.model_dir`
-- `OmlxSession.launch_command()` produces `omlx launch <agent> --model <model> --api-key <key>`; `OllamaSession.launch_command()` produces `ollama launch <agent> --model <model>`
+- Both `OllamaSession.launch_command()` and `OmlxSession.launch_command()` now produce `ollama-session <agent> <model>` — the UI hints always show the user-facing CLI, not the raw backend command
 - omlx health check treats any HTTP response (including 401) as "server up" — auth is enabled by default so unauthenticated requests return 401
 - omlx attaches to a pre-existing server instead of exiting; `_serve_process` stays `None` so cleanup does not stop it
 - Session is created by `init_session(backend, model_name, model_dir, dry_run)`, which calls `start()` and conditionally `_preload_model()`; skips both when `--dry-run` is set
@@ -37,6 +53,16 @@ Python 3 CLI tool that manages a local LLM session via ollama or omlx: starts th
 - Update loop in `_run_update_loop`: calls `tick(now)` on every widget, then flushes stdout once — single flush prevents flicker between intermediate draw states
 - `_build_sorted_list` assigns rows to auto widgets, sorts by `_row`, then appends `Border` instances last so they render as overlays
 - Graceful shutdown registered via `atexit` — unloads model, stops server only if we started it
+
+## Agent proxy subcommand
+
+`_load_omlx_settings()` — standalone helper that reads `~/.omlx/settings.json` and returns `{api_key, server_url}`
+
+`_detect_backend()` — tries omlx first (any HTTP response = up), then ollama (200 OK = up); exits with error if neither is running
+
+`_resolve_model(backend, settings, model_arg)` — returns `model_arg` if provided; for omlx queries `GET /v1/models` and returns `data[0].id`; for ollama returns `None` (omits `--model`)
+
+`_exec_agent(backend, settings, agent, model)` — builds and `os.execvp`/`os.execvpe`s the agent command; for omlx+claude sets `ANTHROPIC_*` env vars
 
 ## Coding guide
 

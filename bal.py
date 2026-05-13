@@ -34,9 +34,9 @@ AGENTS = {"claude", "codex", "opencode", "openclaw"}
 def print_help():
     print("""\
 usage:
-  ollama-session <agent> [model]          launch agent against running backend
-  ollama-session list                     show available models (no server needed)
-  ollama-session --model <name> [options] start server, load model, show live UI
+  bal <agent> [model]          launch agent against running backend
+  bal list                     show available models (no server needed)
+  bal --model <name> [options] start server, load model, show live UI
 
 agents:  claude  codex  opencode  openclaw
 
@@ -152,9 +152,9 @@ def _exec_agent(backend, settings, agent, model):
         os.execvp("ollama", cmd)
 
 
-# --- Session classes ---
+# --- Backend classes ---
 
-class OllamaSession:
+class OllamaBackend:
     backend_name = "ollama"
 
     def __init__(self, model_name):
@@ -258,7 +258,7 @@ class OllamaSession:
             pass
 
 
-class OmlxSession:
+class OmlxBackend:
     backend_name = "omlx"
 
     _SETTINGS_PATH = os.path.expanduser("~/.omlx/settings.json")
@@ -412,9 +412,9 @@ def list_models():
 
 def init_session(backend, model_name, model_dir=None, dry_run=False):
     if backend == "omlx":
-        session = OmlxSession(model_name or "(none)", model_dir=model_dir)
+        session = OmlxBackend(model_name or "(none)", model_dir=model_dir)
     else:
-        session = OllamaSession(model_name or "(none)")
+        session = OllamaBackend(model_name or "(none)")
     session.start()
     if not dry_run:
         print(f"Loading {session._model_name}...", flush=True)

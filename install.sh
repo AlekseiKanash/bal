@@ -1,18 +1,18 @@
 #!/bin/bash
 set -euo pipefail
 
-INSTALL_DIR="$HOME/.local/share/ollama-session"
+INSTALL_DIR="$HOME/.local/share/bal"
 BIN_DIR="$HOME/.local/bin"
-BIN_PATH="$BIN_DIR/ollama-session"
+BIN_PATH="$BIN_DIR/bal"
 VENV_DIR="$INSTALL_DIR/venv"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "Installing ollama-session to $INSTALL_DIR"
+echo "Installing bal to $INSTALL_DIR"
 
 mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 
-cp "$SCRIPT_DIR/ollama-session.py" "$INSTALL_DIR/"
+cp "$SCRIPT_DIR/bal.py" "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
 cp -r "$SCRIPT_DIR/widgets" "$INSTALL_DIR/"
 
@@ -22,7 +22,7 @@ python3 -m venv "$VENV_DIR"
 
 cat > "$BIN_PATH" <<EOF
 #!/bin/bash
-exec "$VENV_DIR/bin/python" "$INSTALL_DIR/ollama-session.py" "\$@"
+exec "$VENV_DIR/bin/python" "$INSTALL_DIR/bal.py" "\$@"
 EOF
 chmod +x "$BIN_PATH"
 

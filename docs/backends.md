@@ -1,7 +1,7 @@
-# Session Classes
+# Backend Classes
 
-**File:** `ollama-session.py`  
-**Classes:** `OllamaSession`, `OmlxSession`
+**File:** `bal.py`  
+**Classes:** `OllamaBackend`, `OmlxBackend`
 
 ## Purpose
 
@@ -32,32 +32,32 @@ After `start()` returns, the server is up and `_version` is populated. Model loa
 
 Runs the graceful shutdown sequence. Terminates the server subprocess if this instance started it; leaves it running otherwise.
 
-For `OllamaSession`, also unloads the model first via POST `/api/generate` with `keep_alive: 0`.
+For `OllamaBackend`, also unloads the model first via POST `/api/generate` with `keep_alive: 0`.
 
 Registered with `atexit` by `init_session()` so it runs on both normal exit and `sys.exit()`.
 
 ### `launch_command(agent, model_name)`
 
-Returns the `ollama-session <agent> <model>` command shown in the UI hint section. Both backends return the same format — the backend-specific command construction lives in `_exec_agent()`, not here.
+Returns the `bal <agent> <model>` command shown in the UI hint section. Both backends return the same format — the backend-specific command construction lives in `_exec_agent()`, not here.
 
 ### `_preload_model()`
 
 Loads the model into memory.
 
-- **OllamaSession**: POST `/api/generate` with `keep_alive: -1`; streams progress to stdout; exits with code 1 on error.
-- **OmlxSession**: no-op — omlx auto-loads models on first inference request.
+- **OllamaBackend**: POST `/api/generate` with `keep_alive: -1`; streams progress to stdout; exits with code 1 on error.
+- **OmlxBackend**: no-op — omlx auto-loads models on first inference request.
 
 ### `_unload_model()`
 
 Evicts the model from memory.
 
-- **OllamaSession**: POST `/api/generate` with `keep_alive: 0`; errors are silently swallowed.
-- **OmlxSession**: no-op — omlx uses LRU eviction.
+- **OllamaBackend**: POST `/api/generate` with `keep_alive: 0`; errors are silently swallowed.
+- **OmlxBackend**: no-op — omlx uses LRU eviction.
 
-## `OllamaSession`
+## `OllamaBackend`
 
 ```python
-OllamaSession(model_name: str)
+OllamaBackend(model_name: str)
 ```
 
 Communicates with `http://localhost:11434` using the ollama REST API.
@@ -72,10 +72,10 @@ Communicates with `http://localhost:11434` using the ollama REST API.
 | `_ensure_server_running()` | Orchestrates server check and conditional start; returns the process or exits |
 | `_fetch_version()` | GET `/api/version`; returns version string or `"unknown"` |
 
-## `OmlxSession`
+## `OmlxBackend`
 
 ```python
-OmlxSession(model_name: str, model_dir: str | None = None)
+OmlxBackend(model_name: str, model_dir: str | None = None)
 ```
 
 Communicates with `http://localhost:8000` using the OpenAI-compatible REST API.
@@ -94,7 +94,7 @@ Communicates with `http://localhost:8000` using the OpenAI-compatible REST API.
 
 ## `init_session(backend, model_name, model_dir=None, dry_run=False)`
 
-Module-level factory function. Instantiates the appropriate session class based on `backend`, calls `start()`, and conditionally loads the model:
+Module-level factory function. Instantiates the appropriate backend class based on `backend`, calls `start()`, and conditionally loads the model:
 
 - **Normal mode**: calls `_preload_model()` to load the model into memory.
 - **Dry-run mode** (`--dry-run`): skips model loading; the server is started but no model is resident.
@@ -106,13 +106,13 @@ Registers `cleanup()` with `atexit` in both modes.
 ```
 init_session(backend, model_name)
         │
-        ├─ OllamaSession(model_name)  or  OmlxSession(model_name, model_dir)
+        ├─ OllamaBackend(model_name)  or  OmlxBackend(model_name, model_dir)
         │
-    session.start()          ← server up, _version set; model NOT yet loaded
+    backend.start()          ← server up, _version set; model NOT yet loaded
         │
   _preload_model()           ← called by init_session() unless --dry-run
         │
         │  (interactive session runs)
         │
-    session.cleanup()        ← model unloaded (ollama only), server stopped if we started it
+    backend.cleanup()        ← model unloaded (ollama only), server stopped if we started it
 ```

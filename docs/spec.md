@@ -2,7 +2,7 @@
 
 ## Overview
 
-`bal` (LLM Backend Abstraction Layer) is a Python CLI tool with two modes of operation:
+`bal` (LLM Backend Launcher) is a Python CLI tool with two modes of operation:
 
 1. **Server mode** — starts a local LLM backend, loads a model, and shows a live terminal UI with system metrics and agent launch hints.
 2. **Agent proxy mode** — auto-detects the running backend and `exec`s the appropriate agent command, replacing itself with the agent process.

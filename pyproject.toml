@@ -1,7 +1,7 @@
 [project]
-name = "ollama-session-bal"
+name = "bal"
 dynamic = ["version"]
-description = "LLM Backend Launcher — manage local LLM sessions via ollama or omlx"
+description = "LLM Backend Launcher — one entry point for multiple LLM backends such as Ollama and oMLX."
 readme = "README.md"
 requires-python = ">= 3.11"
 dependencies = [

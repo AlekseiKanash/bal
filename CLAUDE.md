@@ -6,13 +6,17 @@ Python 3 CLI tool (bal — LLM Backend Launcher) that manages a local LLM sessio
 
 | File | What it is |
 |---|---|
-| `bal.py` | Entry point. `OllamaBackend` / `OmlxBackend` classes + CLI arg parsing, session UI, input loop, agent proxy subcommand |
+| `bal/__init__.py` | Entry point. `OllamaBackend` / `OmlxBackend` classes + CLI arg parsing, session UI, input loop, agent proxy subcommand |
+| `bal/__main__.py` | `python -m bal` entry point |
+| `bal.py` | Dev shim — delegates to `bal` package (`from bal import main`) |
 | `requirements.txt` | Python dependencies (`psutil`) |
+| `pyproject.toml` | Package metadata + setuptools-scm versioning |
 | `install.sh` | Installs the tool to `~/.local/share/bal/` and creates a wrapper at `~/.local/bin/bal` |
-| `widgets/header.py` | `SessionHeader` class — ANSI stats line pinned to a fixed terminal row |
-| `widgets/meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row |
-| `widgets/horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row |
-| `widgets/border.py` | `Border` class — rectangular frame overlay; always rendered last so frame chars appear on top of content |
+| `Formula/bal.rb` | Homebrew formula — update `url` and `sha256` on each release |
+| `bal/widgets/header.py` | `SessionHeader` class — ANSI stats line pinned to a fixed terminal row |
+| `bal/widgets/meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row |
+| `bal/widgets/horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row |
+| `bal/widgets/border.py` | `Border` class — rectangular frame overlay; always rendered last so frame chars appear on top of content |
 | `docs/spec.md` | Full specification — architecture, endpoints, startup sequence, termination |
 | `docs/backends.md` | `OllamaBackend` / `OmlxBackend` reference — attributes, `start()`, `cleanup()`, private methods |
 | `docs/session_header.md` | `SessionHeader` reference — constructor, `start()`, `tick()`, ANSI sequence |
@@ -49,7 +53,7 @@ Supported agents: `claude`, `codex`, `opencode`, `openclaw`
 - omlx attaches to a pre-existing server instead of exiting; `_serve_process` stays `None` so cleanup does not stop it
 - Session is created by `init_session(backend, model_name, model_dir, dry_run)`, which calls `start()` and conditionally `_preload_model()`; skips both when `--dry-run` is set
 - `SessionHeader` reads `backend_name`, `_version`, and `_model_name` directly from the session instance
-- `bal.py list` scans `~/.ollama/models/manifests` (ollama) and `~/.omlx/models` (omlx) from disk — no server required
+- `bal list` scans `~/.ollama/models/manifests` (ollama) and `~/.omlx/models` (omlx) from disk — no server required
 - Update loop in `_run_update_loop`: calls `tick(now)` on every widget, then flushes stdout once — single flush prevents flicker between intermediate draw states
 - `_build_sorted_list` assigns rows to auto widgets, sorts by `_row`, then appends `Border` instances last so they render as overlays
 - Graceful shutdown registered via `atexit` — unloads model, stops server only if we started it

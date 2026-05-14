@@ -79,12 +79,13 @@ def parse_args():
     return args
 
 
-def http_get(path, timeout=5, base_url=OLLAMA_BASE_URL):
-    with urllib.request.urlopen(base_url + path, timeout=timeout) as resp:
+def http_get(path, base_url, timeout=5, headers=None):
+    req = urllib.request.Request(base_url + path, headers=headers or {})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode()
 
 
-def http_post(path, payload, timeout=30, base_url=OLLAMA_BASE_URL):
+def http_post(path, payload, base_url, timeout=30):
     body = json.dumps(payload).encode()
     req = urllib.request.Request(
         base_url + path,
@@ -113,7 +114,7 @@ def _load_omlx_settings():
 def _detect_backend():
     settings = _load_omlx_settings()
     try:
-        http_get("/v1/models", timeout=2, base_url=settings["server_url"])
+        http_get("/v1/models", base_url=settings["server_url"], timeout=2)
         return "omlx", settings
     except urllib.error.HTTPError:
         return "omlx", settings  # any HTTP response means server is up
@@ -121,7 +122,7 @@ def _detect_backend():
         pass
 
     try:
-        http_get("/", timeout=2, base_url=OLLAMA_BASE_URL)
+        http_get("/", base_url=OLLAMA_BASE_URL, timeout=2)
         return "ollama", None
     except Exception:
         pass
@@ -135,7 +136,9 @@ def _resolve_model(backend, settings, model_arg):
         return model_arg
     if backend == "omlx":
         try:
-            body = http_get("/v1/models", timeout=2, base_url=settings["server_url"])
+            api_key = settings.get("api_key", "")
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+            body = http_get("/v1/models", base_url=settings["server_url"], timeout=2, headers=headers)
             data = json.loads(body).get("data", [])
             if data:
                 return data[0]["id"]
@@ -202,7 +205,7 @@ class OllamaBackend:
 
     def _is_server_running(self):
         try:
-            http_get("/", timeout=2)
+            http_get("/", base_url=OLLAMA_BASE_URL, timeout=2)
             return True
         except Exception:
             return False
@@ -240,7 +243,7 @@ class OllamaBackend:
 
     def _fetch_version(self):
         try:
-            body = http_get("/api/version")
+            body = http_get("/api/version", base_url=OLLAMA_BASE_URL)
             return json.loads(body).get("version", "unknown")
         except Exception:
             return "unknown"
@@ -252,6 +255,7 @@ class OllamaBackend:
             with http_post(
                 "/api/generate",
                 {"model": self._model_name, "keep_alive": -1},
+                base_url=OLLAMA_BASE_URL,
                 timeout=MODEL_LOAD_TIMEOUT_SECONDS,
             ) as resp:
                 for raw_line in resp:
@@ -270,7 +274,7 @@ class OllamaBackend:
 
     def _unload_model(self):
         try:
-            with http_post("/api/generate", {"model": self._model_name, "keep_alive": 0}, timeout=10) as resp:
+            with http_post("/api/generate", {"model": self._model_name, "keep_alive": 0}, base_url=OLLAMA_BASE_URL, timeout=10) as resp:
                 resp.read()
         except Exception:
             pass
@@ -326,7 +330,7 @@ class OmlxBackend:
 
     def _is_server_running(self):
         try:
-            http_get("/v1/models", timeout=2, base_url=self._server_url)
+            http_get("/v1/models", base_url=self._server_url, timeout=2)
             return True
         except urllib.error.HTTPError:
             return True  # any HTTP response means the server is listening

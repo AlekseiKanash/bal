@@ -367,7 +367,8 @@ class OmlxBackend:
             result = subprocess.run(
                 ["omlx", "--version"], capture_output=True, text=True, timeout=5
             )
-            return result.stdout.strip().split()[-1]
+            output = result.stdout.strip() or result.stderr.strip()
+            return output.split()[-1] if output else "unknown"
         except Exception:
             return "unknown"
 

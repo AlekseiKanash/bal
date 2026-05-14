@@ -8,14 +8,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Installing bal to $INSTALL_DIR"
 
-cp -r "$SCRIPT_DIR/bal" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/pyproject.toml" "$INSTALL_DIR/"
+mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 
 echo "Creating virtual environment..."
 python3 -m venv "$INSTALL_DIR/venv"
-"$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
-"$INSTALL_DIR/venv/bin/pip" install -q "$INSTALL_DIR"
+"$INSTALL_DIR/venv/bin/pip" install -q "$SCRIPT_DIR"
 
 cat > "$BIN_DIR/bal" <<EOF
 #!/bin/bash

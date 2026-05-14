@@ -29,6 +29,7 @@
 - `_PowermetricsSampler` — background daemon thread running `sudo powermetrics`; `cpu_w()` / `gpu_w()` read from a lock-protected cache
 - Both backends expose the same interface: `backend_name`, `_model_name`, `_version`, `start()`, `cleanup()`, `_preload_model()`, `_unload_model()`, `launch_command(agent, model_name)`
 - `OmlxBackend` reads `~/.omlx/settings.json` at init time for `auth.api_key`, `server.host`, `server.port`, `model.model_dir`
+- omlx source repo: https://github.com/jundot/omlx — refer to it for API details
 - omlx health check treats any HTTP response (including 401) as "server up" — auth is on by default so unauthenticated requests return 401
 - omlx attaches to a pre-existing server; `_serve_process` stays `None` so cleanup never stops it
 - `init_session(backend, model_name, model_dir, dry_run)` — calls `start()` and conditionally `_preload_model()`; skips both on `--dry-run`

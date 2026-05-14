@@ -78,6 +78,8 @@ Communicates with `http://localhost:11434` using the ollama REST API.
 OmlxBackend(model_name: str, model_dir: str | None = None)
 ```
 
+Source repo: https://github.com/jundot/omlx
+
 Communicates with `http://localhost:8000` using the OpenAI-compatible REST API.
 
 `model_dir` defaults to `~/.omlx/models` and is passed to `omlx serve --model-dir`.

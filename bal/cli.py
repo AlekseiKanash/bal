@@ -364,11 +364,9 @@ class OmlxBackend:
 
     def _fetch_version(self):
         try:
-            result = subprocess.run(
-                ["omlx", "--version"], capture_output=True, text=True, timeout=5
-            )
-            output = result.stdout.strip() or result.stderr.strip()
-            return output.split()[-1] if output else "unknown"
+            headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
+            body = http_get("/api/status", base_url=self._server_url, timeout=5, headers=headers)
+            return json.loads(body).get("version", "unknown")
         except Exception:
             return "unknown"
 

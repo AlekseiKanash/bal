@@ -1,6 +1,6 @@
 # Backend Classes
 
-**File:** `bal.py`  
+**File:** `bal/cli.py`
 **Classes:** `OllamaBackend`, `OmlxBackend`
 
 ## Purpose
@@ -92,7 +92,7 @@ Communicates with `http://localhost:8000` using the OpenAI-compatible REST API.
 | `_wait_for_server_ready()` | Polls `_is_server_running()` until ready or 30 s timeout |
 | `_start_server()` | Spawns `omlx serve --model-dir <path>` as a background `Popen` process |
 | `_ensure_server_running()` | Orchestrates server check and conditional start; returns the process or exits |
-| `_fetch_version()` | Runs `omlx --version`; returns version string or `"unknown"` |
+| `_fetch_version()` | GET `/api/status`; returns version string or `"unknown"` |
 
 ## `init_session(backend, model_name, model_dir=None, dry_run=False)`
 

@@ -54,4 +54,4 @@ Writes the current header string to the assigned row without disturbing the curs
 
 ## Threading
 
-`SessionHeader` contains no threads and no locks. All update calls are driven by the single update thread in `bal.py` (`_run_update_loop`), which passes a shared `now` timestamp to every updatable object on a one-second interval.
+`SessionHeader` contains no threads and no locks. All update calls are driven by the single update thread in `bal/cli.py` (`_run_update_loop`), which passes a shared `now` timestamp to every updatable object on a one-second interval.

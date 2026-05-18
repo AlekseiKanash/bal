@@ -32,7 +32,7 @@
 - omlx source repo: https://github.com/jundot/omlx — refer to it for API details
 - omlx health check treats any HTTP response (including 401) as "server up" — auth is on by default so unauthenticated requests return 401
 - omlx attaches to a pre-existing server; `_serve_process` stays `None` so cleanup never stops it
-- `init_session(backend, model_name, model_dir, dry_run)` — calls `start()` and conditionally `_preload_model()`; skips both on `--dry-run`
+- `init_session(backend, model_name, model_dir, dry_run)` — calls `start()` and conditionally `_preload_model()`; `--dry-run` skips model preload only
 - `SessionHeader` reads `backend_name`, `_version`, `_model_name` directly from the session instance
 - `_run_update_loop`: calls `tick(now)` on every widget then flushes stdout once — single flush prevents flicker
 - `_build_sorted_list`: assigns rows to auto widgets, sorts by `_row`, appends `Border` instances last so they render as overlays

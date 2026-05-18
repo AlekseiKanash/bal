@@ -40,4 +40,4 @@ Draws `text` to the assigned row on the first call, then becomes a no-op. The AN
 
 ## Threading
 
-`HorizontalText` contains no threads and no locks. All update calls are driven by the single update thread in `bal.py` (`_run_update_loop`), which passes a shared `now` timestamp to every updatable object on a one-second interval.
+`HorizontalText` contains no threads and no locks. All update calls are driven by the single update thread in `bal/cli.py` (`_run_update_loop`), which passes a shared `now` timestamp to every updatable object on a one-second interval.

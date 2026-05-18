@@ -28,7 +28,7 @@ export PATH="$HOME/.local/bin:$PATH"   # add to ~/.zshrc to make permanent
 ```bash
 bal --model Qwen3                        # ollama (default backend)
 bal --model Qwen3 --backend omlx         # omlx backend
-bal --model Qwen3 --dry-run              # show UI without loading anything
+bal --model Qwen3 --dry-run              # start UI without loading the model
 ```
 
 **Terminal 2 — launch an agent against the running backend**
@@ -71,8 +71,8 @@ Coming soon. Formula is in `Formula/bal.rb`.
 ## Options
 
 ```
---model <name>          model to load (required for server mode)
+--model <name>          model to load (required unless --dry-run)
 --backend ollama|omlx   backend to use (default: ollama)
 --model-dir <path>      model directory (omlx only)
---dry-run               start UI without loading a model or server
+--dry-run               start server and UI without loading a model
 ```

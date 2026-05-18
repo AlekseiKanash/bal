@@ -147,7 +147,7 @@ omlx is commonly kept running as a persistent background service (e.g. via `brew
 
 ## Startup Sequence (Server Mode)
 
-1. Parse CLI arguments. Exit with a clear error if `--model` is missing and `--dry-run` is not set.
+1. Parse CLI arguments with argparse. Route to the appropriate mode: interactive picker (bare / `--select`), `list`, agent proxy, or server mode. In server mode, exit with a clear error if `--model` is missing and `--dry-run` is not set.
 2. Check if the backend server is already running using its health endpoint.
    - **ollama — already running**: exit with code 1 (the script wants exclusive control for model lifecycle management).
    - **ollama — not running**: start `ollama serve` as a background subprocess and poll the health endpoint until it responds (up to 30 seconds).

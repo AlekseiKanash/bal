@@ -242,5 +242,91 @@ class AgentExecTests(unittest.TestCase):
         self.assertEqual(env["OMLX_API_KEY"], "secret")
 
 
+class ParseArgsTests(unittest.TestCase):
+    def _parse(self, *argv):
+        with mock.patch("sys.argv", ["bal", *argv]):
+            return cli.parse_args()
+
+    def test_bare_has_all_defaults(self):
+        args = self._parse()
+        self.assertIsNone(args.command)
+        self.assertIsNone(args.server_model)
+        self.assertFalse(args.dry_run)
+        self.assertEqual(args.backend, "ollama")
+        self.assertFalse(args.select)
+
+    def test_select_flag(self):
+        self.assertTrue(self._parse("--select").select)
+
+    def test_list_command(self):
+        self.assertEqual(self._parse("list").command, "list")
+
+    def test_agent_without_model(self):
+        args = self._parse("claude")
+        self.assertEqual(args.command, "claude")
+        self.assertIsNone(args.model_arg)
+
+    def test_agent_with_model(self):
+        args = self._parse("claude", "qwen3")
+        self.assertEqual(args.command, "claude")
+        self.assertEqual(args.model_arg, "qwen3")
+
+    def test_server_model_flag(self):
+        self.assertEqual(self._parse("--model", "qwen3").server_model, "qwen3")
+
+    def test_dry_run_flag(self):
+        self.assertTrue(self._parse("--dry-run").dry_run)
+
+    def test_backend_flag(self):
+        self.assertEqual(self._parse("--model", "q", "--backend", "omlx").backend, "omlx")
+
+    def test_unknown_command_exits(self):
+        with self.assertRaises(SystemExit):
+            self._parse("unknownagent")
+
+
+class MainDispatchTests(unittest.TestCase):
+    def _run(self, *argv):
+        with mock.patch("sys.argv", ["bal", *argv]):
+            cli.main()
+
+    def test_bare_calls_run_select(self):
+        with mock.patch.object(cli, "_run_select") as m:
+            self._run()
+        m.assert_called_once()
+
+    def test_select_flag_calls_run_select(self):
+        with mock.patch.object(cli, "_run_select") as m:
+            self._run("--select")
+        m.assert_called_once()
+
+    def test_list_calls_list_models(self):
+        with mock.patch.object(cli, "list_models") as m:
+            self._run("list")
+        m.assert_called_once()
+
+    def test_agent_calls_run_agent(self):
+        with mock.patch.object(cli, "_run_agent") as m:
+            self._run("claude")
+        m.assert_called_once_with("claude", None)
+
+    def test_agent_with_model_calls_run_agent(self):
+        with mock.patch.object(cli, "_run_agent") as m:
+            self._run("claude", "qwen3")
+        m.assert_called_once_with("claude", "qwen3")
+
+    def test_server_model_calls_run_server(self):
+        with mock.patch.object(cli, "_run_server") as m:
+            self._run("--model", "qwen3")
+        m.assert_called_once()
+        self.assertEqual(m.call_args[0][0].server_model, "qwen3")
+
+    def test_server_dry_run_calls_run_server(self):
+        with mock.patch.object(cli, "_run_server") as m:
+            self._run("--dry-run")
+        m.assert_called_once()
+        self.assertTrue(m.call_args[0][0].dry_run)
+
+
 if __name__ == "__main__":
     unittest.main()

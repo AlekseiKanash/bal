@@ -82,31 +82,34 @@ def _get_terminal_height():
         return 24
 
 
-def print_help():
-    print("""\
-usage:
-  bal <agent> [model]          launch agent against running backend
-  bal --select                 interactively pick a model and start server
-  bal list                     show available models (no server needed)
-  bal --model <name> [options] start server, load model, show live UI
-
-agents:  claude  codex  opencode  openclaw
+def parse_args():
+    parser = argparse.ArgumentParser(
+        prog="bal",
+        add_help=True,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="LLM backend launcher",
+        epilog="""\
+commands:
+  list                        show available models (no server needed)
+  claude|codex|opencode|openclaw [model]
+                              launch agent against a running backend
 
 server options:
-  --model <name>          model to load (required unless --dry-run or --select)
-  --backend ollama|omlx   backend to use (default: ollama)
-  --model-dir <path>      model directory (omlx only)
-  --dry-run               start server and UI without loading a model\
-""")
+  --model <name>              model to load
+  --backend ollama|omlx       backend (default: ollama)
+  --model-dir <path>          model directory (omlx only)
+  --dry-run                   start UI without loading a model
 
-
-def parse_args():
-    parser = argparse.ArgumentParser(add_help=False)
+bare invocation or --select opens the interactive model picker.""",
+    )
     parser.add_argument("--version", action="version", version=f"bal {VERSION}")
-    parser.add_argument("--model", nargs="?", const=None, default=None)
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--select", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("command", nargs="?", choices=["list", *sorted(AGENTS)], metavar="command")
+    parser.add_argument("model_arg", nargs="?", metavar="model")
+    parser.add_argument("--model", dest="server_model", metavar="NAME")
     parser.add_argument("--backend", default="ollama", choices=["ollama", "omlx"])
-    parser.add_argument("--model-dir", default=None)
+    parser.add_argument("--model-dir", default=None, metavar="PATH")
+    parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
 
@@ -485,55 +488,38 @@ def _run_select():
     run_input_loop(stop_event)
 
 
-def main():
-    # --- Handle --select (interactive model picker) ---
-    if "--select" in sys.argv:
-        sys.argv.remove("--select")
-        _run_select()
-        return
-
-    if len(sys.argv) == 1:
-        _run_select()
-        return
-
-    if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
-        print_help()
-        sys.exit(0)
-
-    if sys.argv[1] == "list":
-        list_models()
-        return
-
-    # --- Agent launch path ---
-    if sys.argv[1] in AGENTS:
-        agent = sys.argv[1]
-        model_arg = sys.argv[2] if len(sys.argv) > 2 else None
-        backend = detect_running_backend()
-        if backend is None:
-            print("Error: no backend running (tried omlx and ollama).", file=sys.stderr)
-            sys.exit(1)
-
-        if model_arg is None:
-            model = backend.resolve_model(None)
-            backend.exec_agent(agent, model)
-            return
-
-        # Model specified but may exist on multiple backends
-        result = _select_backend_for_model(model_arg)
-        if result is not None:
-            backend_name, model_arg = result
-            backend = create_backend(backend_name, model_arg)
-        model = backend.resolve_model(model_arg)
-        backend.exec_agent(agent, model)
-        return  # unreachable; exec replaces the process
-
-    # --- Server mode path ---
-    atexit.register(restore_terminal)
-    args = parse_args()
-    if args.dry_run or args.model is not None:
-        session = init_session(args.backend, args.model, model_dir=args.model_dir, dry_run=args.dry_run)
-        stop_event = start_session_ui(session)
-        run_input_loop(stop_event)
-    else:
-        print_help()
+def _run_agent(agent, model_arg):
+    backend = detect_running_backend()
+    if backend is None:
+        print("Error: no backend running (tried omlx and ollama).", file=sys.stderr)
         sys.exit(1)
+    if model_arg is None:
+        backend.exec_agent(agent, backend.resolve_model(None))
+        return
+    result = _select_backend_for_model(model_arg)
+    if result is not None:
+        backend_name, model_arg = result
+        backend = create_backend(backend_name, model_arg)
+    backend.exec_agent(agent, backend.resolve_model(model_arg))
+
+
+def _run_server(args):
+    if args.server_model is None and not args.dry_run:
+        print("Error: --model is required (or use --dry-run or --select)", file=sys.stderr)
+        sys.exit(1)
+    atexit.register(restore_terminal)
+    session = init_session(args.backend, args.server_model, model_dir=args.model_dir, dry_run=args.dry_run)
+    stop_event = start_session_ui(session)
+    run_input_loop(stop_event)
+
+
+def main():
+    args = parse_args()
+    if args.select or (args.command is None and args.server_model is None and not args.dry_run):
+        _run_select()
+    elif args.command == "list":
+        list_models()
+    elif args.command in AGENTS:
+        _run_agent(args.command, args.model_arg)
+    else:
+        _run_server(args)

@@ -43,7 +43,8 @@
 - `_load_omlx_settings()` — reads `~/.omlx/settings.json`, returns `{api_key, server_url}`
 - `_detect_backend()` — tries omlx first (any HTTP response = up), then ollama (200 OK = up)
 - `_resolve_model(backend, settings, model_arg)` — returns `model_arg` if given; for omlx queries `GET /v1/models` and returns `data[0].id`; for ollama returns `None`
-- `_exec_agent(backend, settings, agent, model)` — `os.execvp`/`os.execvpe`s the agent; for omlx+claude sets `ANTHROPIC_*` env vars
+- `_exec_agent(backend, settings, agent, model)` — `os.execvp`/`os.execvpe`s the agent; for omlx+claude sets `ANTHROPIC_*` env vars; for omlx+codex execs `codex -c 'model_provider="omlx"' -c 'model="<model>"'` with `OMLX_API_KEY` — bypasses `omlx launch codex` which permanently corrupts `~/.codex/config.toml`
+- `codex_models_cache.json` — copy of `~/.codex/models_cache.json` with Qwen model entries added; symlink `~/.codex/models_cache.json` → this file to suppress "Model metadata not found" warnings
 
 ## Coding guide
 

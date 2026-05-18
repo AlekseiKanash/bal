@@ -19,6 +19,8 @@ import urllib.request
 import psutil
 from importlib.metadata import version as _meta_version
 
+from dataclasses import dataclass
+
 from .widgets.header import SessionHeader
 from .widgets.meter import ValueMeter
 from .widgets.horizontal_text import HorizontalText
@@ -48,17 +50,59 @@ INPUT_PROMPT = "> "
 AGENTS = {"claude", "codex", "opencode", "openclaw"}
 
 
+@dataclass
+class ModelChoice:
+    """An available model in the interactive selection menu."""
+    name: str
+    backend: str
+    version: str
+    display: str  # e.g. "ollama llama3.2:3b" or "omlx qwen3 (v1.0)"
+
+
+def _set_raw_mode(fd):
+    """Set fd (stdin) into raw mode for single-character input."""
+    import termios
+    try:
+        old = termios.tcgetattr(fd)
+    except termios.error:
+        return None
+    new = old[:]
+    new[3] = new[3] & ~termios.ICANON & ~termios.ECHO
+    termios.tcsetattr(fd, termios.TCSADRAIN, new)
+    return old
+
+
+def _restore_mode(fd, old):
+    """Restore terminal to previous state."""
+    if old is not None:
+        import termios
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def _show_cursor():
+    sys.stdout.write("\033[?25h")
+    sys.stdout.flush()
+
+
+def _get_terminal_height():
+    try:
+        return int(os.environ.get("LINES", 24))
+    except (ValueError, TypeError):
+        return 24
+
+
 def print_help():
     print("""\
 usage:
   bal <agent> [model]          launch agent against running backend
+  bal --select                 interactively pick a model and start server
   bal list                     show available models (no server needed)
   bal --model <name> [options] start server, load model, show live UI
 
 agents:  claude  codex  opencode  openclaw
 
 server options:
-  --model <name>          model to load (required)
+  --model <name>          model to load (required, unless using --select)
   --backend ollama|omlx   backend to use (default: ollama)
   --model-dir <path>      model directory (omlx only)
   --dry-run               start UI without loading a model or server\
@@ -68,15 +112,11 @@ server options:
 def parse_args():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--version", action="version", version=f"bal {VERSION}")
-    parser.add_argument("--model", default=None)
+    parser.add_argument("--model", nargs="?", const=None, default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--backend", default="ollama", choices=["ollama", "omlx"])
     parser.add_argument("--model-dir", default=None)
-    args = parser.parse_args()
-    if not args.dry_run and args.model is None:
-        print_help()
-        sys.exit(1)
-    return args
+    return parser.parse_args()
 
 
 def http_get(path, base_url, timeout=5, headers=None):
@@ -147,6 +187,197 @@ def _resolve_model(backend, settings, model_arg):
     return None
 
 
+def _fetch_ollama_models():
+    """Fetch available models from the running ollama server."""
+    choices = []
+    try:
+        body = http_get("/api/tags", base_url=OLLAMA_BASE_URL, timeout=5)
+        data = json.loads(body)
+        for m in data.get("models", []):
+            name = m.get("name", "")
+            tag = name.split(":")[-1] if ":" in name else ""
+            choices.append(ModelChoice(name=name, backend="ollama", version=tag,
+                                       display=f"ollama {name}"))
+    except Exception:
+        pass
+    return choices
+
+
+def _fetch_omlx_models():
+    """Fetch available models from the running omlx server."""
+    choices = []
+    settings = _load_omlx_settings()
+    api_key = settings.get("api_key", "")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        body = http_get("/v1/models", base_url=settings["server_url"], timeout=5, headers=headers)
+        data = json.loads(body)
+        for m in data.get("data", []):
+            model_id = m.get("id", "")
+            version = m.get("version", "")
+            display = f"omlx {model_id}"
+            if version:
+                display += f" ({version})"
+            choices.append(ModelChoice(name=model_id, backend="omlx", version=version,
+                                       display=display))
+    except Exception:
+        pass
+    return choices
+
+
+def _list_available_models():
+    """Return all available models from both backends as ModelChoice objects."""
+    models = _fetch_ollama_models() + _fetch_omlx_models()
+    if models:
+        return models
+    # Fallback: filesystem scan
+    ollama = _scan_ollama_models() or []
+    for name in ollama:
+        tag = name.split(":")[-1] if ":" in name else ""
+        models.append(ModelChoice(name=name, backend="ollama", version=tag,
+                                   display=f"ollama {name}"))
+    model_dir = os.path.expanduser("~/.omlx/models")
+    if os.path.isdir(model_dir):
+        for name in sorted(
+            e for e in os.listdir(model_dir)
+            if os.path.isdir(os.path.join(model_dir, e))
+        ):
+            models.append(ModelChoice(name=name, backend="omlx", version="",
+                                       display=f"omlx {name}"))
+    return models
+
+
+def _select_model_interactive(models):
+    """Display an interactive numbered menu and return the selected ModelChoice."""
+    if not models:
+        print("No models available.", file=sys.stderr)
+        return None
+
+    selected = 0
+    old_mode = _set_raw_mode(sys.stdin.fileno())
+
+    def render():
+        lines = []
+        h = _get_terminal_height()
+        max_display = min(len(models), h - 8)
+        start = max(0, min(selected - max_display // 2, len(models) - max_display))
+        end = start + max_display
+
+        lines.append("\033[2J\033[H")
+        lines.append("\033[?25l")
+        lines.append(f"\n  Select a model ({len(models)} available)\n")
+        for i, m in enumerate(models[start:end]):
+            idx = start + i + 1
+            marker = "\033[34m >\033[0m" if i == selected else "  "
+            lines.append(f"{marker} {idx}. {m.display}")
+        lines.append(f"\n  Arrow keys: navigate  Enter: select  Esc/Ctrl+C: cancel")
+        sys.stdout.write("".join(lines))
+        sys.stdout.flush()
+
+    def read_char():
+        if old_mode is not None:
+            c = sys.stdin.buffer.read(1)
+            if len(c) == 0:
+                return ""
+            if c == b"\x1b":
+                c2 = sys.stdin.buffer.read(1)
+                if c2 == b"[":
+                    c3 = sys.stdin.buffer.read(1)
+                    if c3 == b"A":
+                        return "UP"
+                    elif c3 == b"B":
+                        return "DOWN"
+                    elif c3 == b"C":
+                        return "RIGHT"
+                    elif c3 == b"D":
+                        return "LEFT"
+                    return ""
+                return "ESC"
+            return c.decode("utf-8", errors="replace")
+        else:
+            try:
+                return input(f"\nChoice [1-{len(models)}]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                return "\x03"
+
+    try:
+        render()
+        while True:
+            key = read_char()
+            if old_mode is not None:
+                # Raw mode: arrow keys navigate, Enter selects, Esc cancels
+                if key == "DOWN" or key == "RIGHT":
+                    selected = (selected + 1) % len(models)
+                    render()
+                elif key == "UP" or key == "LEFT":
+                    selected = (selected - 1) % len(models)
+                    render()
+                elif key == "\n" or key == "\r":
+                    print()
+                    _restore_mode(sys.stdin.fileno(), old_mode)
+                    _show_cursor()
+                    return models[selected]
+                elif key == "\x03" or key == "ESC" or key == "q":
+                    print("\nCancelled.")
+                    _restore_mode(sys.stdin.fileno(), old_mode)
+                    _show_cursor()
+                    return None
+            else:
+                # Line mode: single digit is a selection
+                if key.isdigit():
+                    n = int(key)
+                    if 1 <= n <= len(models):
+                        print()
+                        _restore_mode(sys.stdin.fileno(), old_mode)
+                        _show_cursor()
+                        return models[n - 1]
+                elif key == "\x03":
+                    print("\nCancelled.")
+                    _restore_mode(sys.stdin.fileno(), old_mode)
+                    _show_cursor()
+                    return None
+    except KeyboardInterrupt:
+        print()
+        return None
+    finally:
+        _restore_mode(sys.stdin.fileno(), old_mode)
+        _show_cursor()
+
+
+def _select_backend_for_model(model_name):
+    """When a model name exists on multiple backends, ask user to pick."""
+    ollama_models = _fetch_ollama_models()
+    omlx_models = _fetch_omlx_models()
+
+    matching = []
+    for m in ollama_models:
+        if model_name in m.name or m.name in model_name:
+            matching.append((m.backend, m.name))
+    for m in omlx_models:
+        if model_name in m.name or m.name in model_name:
+            matching.append((m.backend, m.name))
+
+    if not matching:
+        return None
+
+    if len(matching) == 1:
+        return matching[0]
+
+    prompt = f"\nModel '{model_name}' exists on multiple backends:\n"
+    for i, (b, n) in enumerate(matching):
+        prompt += f"  {i + 1}. {b}  {n}\n"
+    prompt += f"\nPick backend [1-{len(matching)}]: "
+    print(prompt, end="", flush=True)
+    try:
+        val = input().strip()
+        idx = int(val) - 1
+        if 0 <= idx < len(matching):
+            return matching[idx]
+    except (ValueError, EOFError, KeyboardInterrupt):
+        pass
+    return None
+
+
 def _exec_agent(backend, settings, agent, model):
     if backend == "omlx":
         if agent == "claude":
@@ -160,6 +391,14 @@ def _exec_agent(backend, settings, agent, model):
             env["API_TIMEOUT_MS"] = "3000000"
             env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
             os.execvpe("claude", ["claude"], env)
+        elif agent == "codex":
+            env = os.environ.copy()
+            env["OMLX_API_KEY"] = settings["api_key"]
+            cmd = ["codex",
+                   "-c", 'model_provider="omlx"']
+            if model:
+                cmd += ["-c", f'model="{model}"']
+            os.execvpe("codex", cmd, env)
         else:
             cmd = ["omlx", "launch", agent]
             if model:
@@ -399,7 +638,8 @@ def list_models():
     script = os.path.basename(sys.argv[0])
     col = 44  # model name column width
 
-    print("Available models:\n")
+    print("Available models:")
+    print("  Or run: bal --select  for interactive selection\n")
 
     # ollama — scan manifest files on disk
     print("ollama")
@@ -633,6 +873,22 @@ def run_input_loop(stop_event: threading.Event):
 
 
 def main():
+    # --- Handle --select (interactive model picker) ---
+    if "--select" in sys.argv:
+        sys.argv.remove("--select")
+        models = _list_available_models()
+        if not models:
+            print("Error: no models available on any backend.", file=sys.stderr)
+            sys.exit(1)
+        choice = _select_model_interactive(models)
+        if choice is None:
+            return
+        atexit.register(restore_terminal)
+        session = init_session(choice.backend, choice.name, dry_run=False)
+        stop_event = start_session_ui(session)
+        run_input_loop(stop_event)
+        return
+
     if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help")):
         print_help()
         sys.exit(0)
@@ -641,16 +897,41 @@ def main():
         list_models()
         return
 
+    # --- Agent launch path ---
     if sys.argv[1] in AGENTS:
         agent = sys.argv[1]
         model_arg = sys.argv[2] if len(sys.argv) > 2 else None
         backend, settings = _detect_backend()
+
+        if model_arg is None:
+            models = _list_available_models()
+            if not models:
+                print("Error: no models available. Try: bal list", file=sys.stderr)
+                sys.exit(1)
+            choice = _select_model_interactive(models)
+            if choice is None:
+                return
+            sel_settings = _load_omlx_settings() if choice.backend == "omlx" else None
+            _exec_agent(choice.backend, sel_settings, agent, choice.name)
+            return
+
+        # Model specified but may exist on multiple backends
+        result = _select_backend_for_model(model_arg)
+        if result is not None:
+            backend, model_arg = result
+            if backend == "omlx":
+                settings = _load_omlx_settings()
         model = _resolve_model(backend, settings, model_arg)
         _exec_agent(backend, settings, agent, model)
         return  # unreachable; exec replaces the process
 
+    # --- Server mode path ---
     atexit.register(restore_terminal)
     args = parse_args()
-    session = init_session(args.backend, args.model, model_dir=args.model_dir, dry_run=args.dry_run)
-    stop_event = start_session_ui(session)
-    run_input_loop(stop_event)
+    if args.dry_run or args.model is not None:
+        session = init_session(args.backend, args.model, model_dir=args.model_dir, dry_run=args.dry_run)
+        stop_event = start_session_ui(session)
+        run_input_loop(stop_event)
+    else:
+        print_help()
+        sys.exit(1)

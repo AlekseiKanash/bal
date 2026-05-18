@@ -220,6 +220,7 @@ When the first argument is an agent name, the script auto-detects the running ba
 | Backend | Agent | Command |
 |---|---|---|
 | omlx | `claude` | `os.execvpe("claude", ...)` with `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`, `API_TIMEOUT_MS=3000000`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` |
+| omlx | `codex` | `os.execvpe("codex", ["codex", "-c", 'model_provider="omlx"', "-c", 'model="<model>"'], env)` with `OMLX_API_KEY` — avoids `omlx launch` which permanently corrupts `~/.codex/config.toml` |
 | omlx | others | `omlx launch <agent> [--model <model>] --api-key <key>` |
 | ollama | any | `ollama launch <agent> [--model <model>]` |
 

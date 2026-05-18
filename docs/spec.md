@@ -97,7 +97,7 @@ Both backend classes expose the same interface so the rest of the code is backen
 | `version` | property `str \| None` | Server version; populated by `start()` |
 | `start()` | method | Start or attach to the server, populate `version` |
 | `cleanup()` | method | Unload the model and stop the server (if we started it) |
-| `preload_model()` | method | Load the model (no-op for omlx) |
+| `preload_model()` | method | Load the model into memory eagerly before showing the UI |
 | `launch_command(agent)` | method | Return the UI hint command |
 | `resolve_model(model_arg)` / `exec_agent(agent, model)` | methods | Agent proxy resolution and execution |
 
@@ -136,10 +136,11 @@ Key endpoints used:
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/v1/models` | GET | Health check — any HTTP response (including 401) confirms the server is listening |
+| `/v1/chat/completions` | POST | Triggers eager model load during `preload_model()` |
 
 Version is read from `GET /api/status`.
 
-Model preloading and unloading are not performed via the API — omlx auto-loads models on first request and uses LRU eviction when memory pressure requires it.
+**Model preloading:** `preload_model()` sends a minimal `POST /v1/chat/completions` request (`max_tokens: 1`) to force the model into memory before the UI appears. Without this, omlx loads models lazily on the first real agent request.
 
 **API key authentication:** omlx enables API key auth by default, so `GET /v1/models` returns 401 when no key is supplied. The health check treats any HTTP-level response as "server is up" — only connection-level failures (refused, timeout) count as "not running".
 
@@ -154,7 +155,7 @@ omlx is commonly kept running as a persistent background service (e.g. via `brew
    - **omlx — already running**: attach to the existing instance; cleanup will not stop it.
    - **omlx — not running**: start `omlx serve --model-dir <path>` as a background subprocess and poll until ready (up to 30 seconds).
 3. Retrieve the server version.
-4. Unless `--dry-run`: load the model into memory. For ollama this streams progress to stdout; for omlx this is a no-op.
+4. Unless `--dry-run`: load the model into memory eagerly. For ollama, POST `/api/generate` with `keep_alive: -1` streams progress to stdout. For omlx, POST `/v1/chat/completions` with `max_tokens: 1` triggers the load; a warning is printed if this fails but the session continues.
 5. Clear the terminal and build the widget UI.
 6. Enter the command input loop.
 

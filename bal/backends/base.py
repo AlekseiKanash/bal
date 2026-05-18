@@ -49,11 +49,11 @@ def http_get(path, base_url, timeout=5, headers=None):
         return resp.read().decode()
 
 
-def http_post(path, payload, base_url, timeout=30):
+def http_post(path, payload, base_url, timeout=30, headers=None):
     body = json.dumps(payload).encode()
     req = urllib.request.Request(
         base_url + path,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **(headers or {})},
     )
     return urllib.request.urlopen(req, timeout=timeout)

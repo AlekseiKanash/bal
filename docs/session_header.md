@@ -20,7 +20,7 @@ BAL | omlx 1.2.0   | Loaded: llama3 | Running: 0:02:34
 SessionHeader(session, row: int | None = None)
 ```
 
-Accepts any backend instance (`OllamaBackend` or `OmlxBackend`) and reads `backend_name`, `_version`, and `_model_name` from it at render time. `row` is the terminal row to pin to; `None` means it will be assigned by `_build_sorted_list`. Records the session start time. Does not touch the terminal or start any threads. Safe to construct before the terminal is cleared.
+Accepts any backend instance implementing the shared backend interface and reads `backend_name`, `version`, and `model_name` from it at render time. `row` is the terminal row to pin to; `None` means it will be assigned by `_build_sorted_list`. Records the session start time. Does not touch the terminal or start any threads. Safe to construct before the terminal is cleared.
 
 ## Lifecycle
 

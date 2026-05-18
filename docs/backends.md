@@ -1,32 +1,47 @@
-# Backend Classes
+# Backend Bridge
 
-**File:** `bal/cli.py`
+**Package:** `bal.backends`
+
 **Classes:** `OllamaBackend`, `OmlxBackend`
 
 ## Purpose
 
-Each class encapsulates all logic for starting and interacting with its respective backend server. They manage the server process, model lifecycle, and expose version and model name for display by `SessionHeader`.
+Each concrete backend encapsulates all logic for starting and interacting with its respective backend server. The CLI talks to backends only through the public bridge surface exported by `bal.backends`.
 
-Both classes share the same public interface so the rest of the code is backend-agnostic.
+Backend-specific HTTP endpoints, settings files, subprocess commands, model discovery, and agent execution live under `bal/backends/`.
 
 ## Shared Public Interface
 
-### Attributes
+| Member | Type | Description |
+|---|---|---|
+| `backend_name` | `str` | `"ollama"` or `"omlx"` |
+| `model_name` | property `str` | Model name passed via `--model`, or `"(none)"` |
+| `version` | property `str \| None` | Server version; populated by `start()` |
+| `start()` | method | Start or attach to the server, then populate `version` |
+| `preload_model()` | method | Load the model into memory; no-op for omlx |
+| `cleanup()` | method | Unload/stop resources owned by this session |
+| `launch_command(agent)` | method | Return the `bal <agent> <model>` UI hint |
+| `resolve_model(model_arg)` | method | Resolve an optional model argument for agent proxy mode |
+| `exec_agent(agent, model)` | method | Execute the backend-specific agent command |
 
-| Attribute | Type | Set by | Description |
-|---|---|---|---|
-| `backend_name` | class attr `str` | declaration | `"ollama"` or `"omlx"` |
-| `_model_name` | `str` | constructor | Name of the model to load |
-| `_version` | `str \| None` | `start()` | Server version string; `None` until `start()` is called |
+## Bridge Functions
+
+| Function | Description |
+|---|---|
+| `create_backend(name, model_name, model_dir=None)` | Instantiate the selected backend |
+| `detect_running_backend()` | Return a backend for the currently running server, or `None` |
+| `list_available_models()` | Return `ModelChoice` entries from running APIs or local fallback scans |
+| `find_backend_model_matches(model_name)` | Return matching `(backend, model)` pairs for disambiguation |
+| `scan_local_models_by_backend()` | Return local model names grouped by backend for `bal list` |
 
 ### `start()`
 
 Runs the server startup sequence:
 1. Checks if the server is already running; exits with code 1 if it is.
 2. Starts the server as a background subprocess and waits for it to become ready (up to 30 seconds).
-3. Fetches the server version and stores it in `_version`.
+3. Fetches the server version and exposes it through `version`.
 
-After `start()` returns, the server is up and `_version` is populated. Model loading is **not** done here — it is the caller's responsibility (see `init_session`).
+After `start()` returns, the server is up and `version` is populated. Model loading is **not** done here — it is the caller's responsibility (see `init_session`).
 
 ### `cleanup()`
 
@@ -36,18 +51,18 @@ For `OllamaBackend`, also unloads the model first via POST `/api/generate` with 
 
 Registered with `atexit` by `init_session()` so it runs on both normal exit and `sys.exit()`.
 
-### `launch_command(agent, model_name)`
+### `launch_command(agent)`
 
-Returns the `bal <agent> <model>` command shown in the UI hint section. Both backends return the same format — the backend-specific command construction lives in `_exec_agent()`, not here.
+Returns the `bal <agent> <model>` command shown in the UI hint section. Both backends return the same format.
 
-### `_preload_model()`
+### `preload_model()`
 
 Loads the model into memory.
 
 - **OllamaBackend**: POST `/api/generate` with `keep_alive: -1`; streams progress to stdout; exits with code 1 on error.
 - **OmlxBackend**: no-op — omlx auto-loads models on first inference request.
 
-### `_unload_model()`
+### Cleanup Model Handling
 
 Evicts the model from memory.
 
@@ -98,7 +113,7 @@ Communicates with `http://localhost:8000` using the OpenAI-compatible REST API.
 
 Module-level factory function. Instantiates the appropriate backend class based on `backend`, calls `start()`, and conditionally loads the model:
 
-- **Normal mode**: calls `_preload_model()` to load the model into memory.
+- **Normal mode**: calls `preload_model()` to load the model into memory.
 - **Dry-run mode** (`--dry-run`): skips model loading; the server is started but no model is resident.
 
 Registers `cleanup()` with `atexit` in both modes.
@@ -110,9 +125,9 @@ init_session(backend, model_name)
         │
         ├─ OllamaBackend(model_name)  or  OmlxBackend(model_name, model_dir)
         │
-    backend.start()          ← server up, _version set; model NOT yet loaded
+    backend.start()          ← server up, version set; model NOT yet loaded
         │
-  _preload_model()           ← called by init_session() unless --dry-run
+  preload_model()            ← called by init_session() unless --dry-run
         │
         │  (interactive session runs)
         │

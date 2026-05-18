@@ -17,7 +17,9 @@ Two backends are supported:
 ## Usage
 
 ```
-bal <agent> [model]          launch agent against running backend
+bal                          interactively pick a model and start server
+bal --select                 same as bare invocation
+bal <agent> [model]          launch agent; omitting model uses the currently loaded one
 bal list                     show available models (no server needed)
 bal --model <name> [options] start server, load model, show live UI
 
@@ -27,10 +29,10 @@ agents:  claude  codex  opencode  openclaw
 Typical two-terminal workflow:
 
 ```
-# Terminal 1 — start server and load model
-bal --model Qwen3 --backend omlx
+# Terminal 1 — pick a model and start server
+bal
 
-# Terminal 2 — launch an agent against it
+# Terminal 2 — launch an agent against the loaded model
 bal claude
 bal claude Qwen3   # explicit model name
 ```
@@ -213,10 +215,10 @@ When the first argument is an agent name, the script auto-detects the running ba
 2. Try `GET http://localhost:11434/` — 200 OK → ollama
 3. Neither responding → error and exit 1
 
-**Model resolution:**
+**Model resolution (`backend.resolve_model(model_arg)`):**
 - Model name provided as second argument → use it directly
-- Omitted + omlx → query `GET /v1/models`, use `data[0].id`
-- Omitted + ollama → omit `--model` from the launch command
+- Omitted + omlx → query `GET /v1/models`, use `data[0].id` (the currently loaded model)
+- Omitted + ollama → pass `None` to `exec_agent`; `ollama launch` runs without `--model`, using the currently loaded model
 
 **Command construction (`backend.exec_agent(agent, model)`):**
 

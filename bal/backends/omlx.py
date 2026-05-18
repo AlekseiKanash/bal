@@ -5,7 +5,7 @@ import sys
 import time
 import urllib.error
 
-from .base import ModelChoice, http_get
+from .base import ModelChoice, http_get, http_post
 
 
 SETTINGS_PATH = os.path.expanduser("~/.omlx/settings.json")
@@ -116,7 +116,22 @@ class OmlxBackend:
             os.execvp("omlx", cmd)
 
     def preload_model(self):
-        pass
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
+        try:
+            with http_post(
+                "/v1/chat/completions",
+                {
+                    "model": self._model_name,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                },
+                base_url=self._server_url,
+                headers=headers,
+                timeout=120,
+            ) as resp:
+                resp.read()
+        except Exception as e:
+            print(f"  Warning: model preload failed: {e}", file=sys.stderr, flush=True)
 
     def _is_server_running(self):
         return is_server_running(self._server_url)

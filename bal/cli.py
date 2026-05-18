@@ -4,7 +4,6 @@
 
 import argparse
 import atexit
-import json
 import os
 import platform
 import re
@@ -13,14 +12,18 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 
 import psutil
 from importlib.metadata import version as _meta_version
 
-from dataclasses import dataclass
-
+from .backends import (
+    create_backend,
+    detect_running_backend,
+    find_backend_model_matches,
+    list_available_models,
+    local_model_dirs,
+    scan_local_models_by_backend,
+)
 from .widgets.header import SessionHeader
 from .widgets.meter import ValueMeter
 from .widgets.horizontal_text import HorizontalText
@@ -41,22 +44,10 @@ else:
         VERSION = "unknown"
 
 
-OLLAMA_BASE_URL = "http://localhost:11434"
-OMLX_BASE_URL = "http://localhost:8000"
-
 HEADER_UPDATE_INTERVAL_SECONDS = 1
 INPUT_PROMPT = "> "
 
 AGENTS = {"claude", "codex", "opencode", "openclaw"}
-
-
-@dataclass
-class ModelChoice:
-    """An available model in the interactive selection menu."""
-    name: str
-    backend: str
-    version: str
-    display: str  # e.g. "ollama llama3.2:3b" or "omlx qwen3 (v1.0)"
 
 
 def _set_raw_mode(fd):
@@ -119,132 +110,9 @@ def parse_args():
     return parser.parse_args()
 
 
-def http_get(path, base_url, timeout=5, headers=None):
-    req = urllib.request.Request(base_url + path, headers=headers or {})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read().decode()
-
-
-def http_post(path, payload, base_url, timeout=30):
-    body = json.dumps(payload).encode()
-    req = urllib.request.Request(
-        base_url + path,
-        data=body,
-        headers={"Content-Type": "application/json"},
-    )
-    return urllib.request.urlopen(req, timeout=timeout)
-
-
-# --- Agent subcommand helpers ---
-
-def _load_omlx_settings():
-    path = os.path.expanduser("~/.omlx/settings.json")
-    try:
-        with open(path) as f:
-            s = json.load(f)
-    except Exception:
-        s = {}
-    api_key = s.get("auth", {}).get("api_key", "")
-    server = s.get("server", {})
-    host = server.get("host", "127.0.0.1")
-    port = server.get("port", 8000)
-    return {"api_key": api_key, "server_url": f"http://{host}:{port}"}
-
-
-def _detect_backend():
-    settings = _load_omlx_settings()
-    try:
-        http_get("/v1/models", base_url=settings["server_url"], timeout=2)
-        return "omlx", settings
-    except urllib.error.HTTPError:
-        return "omlx", settings  # any HTTP response means server is up
-    except Exception:
-        pass
-
-    try:
-        http_get("/", base_url=OLLAMA_BASE_URL, timeout=2)
-        return "ollama", None
-    except Exception:
-        pass
-
-    print("Error: no backend running (tried omlx and ollama).", file=sys.stderr)
-    sys.exit(1)
-
-
-def _resolve_model(backend, settings, model_arg):
-    if model_arg:
-        return model_arg
-    if backend == "omlx":
-        try:
-            api_key = settings.get("api_key", "")
-            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-            body = http_get("/v1/models", base_url=settings["server_url"], timeout=2, headers=headers)
-            data = json.loads(body).get("data", [])
-            if data:
-                return data[0]["id"]
-        except Exception:
-            pass
-    return None
-
-
-def _fetch_ollama_models():
-    """Fetch available models from the running ollama server."""
-    choices = []
-    try:
-        body = http_get("/api/tags", base_url=OLLAMA_BASE_URL, timeout=5)
-        data = json.loads(body)
-        for m in data.get("models", []):
-            name = m.get("name", "")
-            tag = name.split(":")[-1] if ":" in name else ""
-            choices.append(ModelChoice(name=name, backend="ollama", version=tag,
-                                       display=f"ollama {name}"))
-    except Exception:
-        pass
-    return choices
-
-
-def _fetch_omlx_models():
-    """Fetch available models from the running omlx server."""
-    choices = []
-    settings = _load_omlx_settings()
-    api_key = settings.get("api_key", "")
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    try:
-        body = http_get("/v1/models", base_url=settings["server_url"], timeout=5, headers=headers)
-        data = json.loads(body)
-        for m in data.get("data", []):
-            model_id = m.get("id", "")
-            version = m.get("version", "")
-            display = f"omlx {model_id}"
-            if version:
-                display += f" ({version})"
-            choices.append(ModelChoice(name=model_id, backend="omlx", version=version,
-                                       display=display))
-    except Exception:
-        pass
-    return choices
-
-
 def _list_available_models():
     """Return all available models from both backends as ModelChoice objects."""
-    models = _fetch_ollama_models() + _fetch_omlx_models()
-    if models:
-        return models
-    # Fallback: filesystem scan
-    ollama = _scan_ollama_models() or []
-    for name in ollama:
-        tag = name.split(":")[-1] if ":" in name else ""
-        models.append(ModelChoice(name=name, backend="ollama", version=tag,
-                                   display=f"ollama {name}"))
-    model_dir = os.path.expanduser("~/.omlx/models")
-    if os.path.isdir(model_dir):
-        for name in sorted(
-            e for e in os.listdir(model_dir)
-            if os.path.isdir(os.path.join(model_dir, e))
-        ):
-            models.append(ModelChoice(name=name, backend="omlx", version="",
-                                       display=f"omlx {name}"))
-    return models
+    return list_available_models()
 
 
 def _select_model_interactive(models):
@@ -346,16 +214,7 @@ def _select_model_interactive(models):
 
 def _select_backend_for_model(model_name):
     """When a model name exists on multiple backends, ask user to pick."""
-    ollama_models = _fetch_ollama_models()
-    omlx_models = _fetch_omlx_models()
-
-    matching = []
-    for m in ollama_models:
-        if model_name in m.name or m.name in model_name:
-            matching.append((m.backend, m.name))
-    for m in omlx_models:
-        if model_name in m.name or m.name in model_name:
-            matching.append((m.backend, m.name))
+    matching = find_backend_model_matches(model_name)
 
     if not matching:
         return None
@@ -378,276 +237,20 @@ def _select_backend_for_model(model_name):
     return None
 
 
-def _exec_agent(backend, settings, agent, model):
-    if backend == "omlx":
-        if agent == "claude":
-            env = os.environ.copy()
-            env["ANTHROPIC_BASE_URL"] = settings["server_url"]
-            env["ANTHROPIC_AUTH_TOKEN"] = settings["api_key"]
-            if model:
-                env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
-                env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
-                env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
-            env["API_TIMEOUT_MS"] = "3000000"
-            env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
-            os.execvpe("claude", ["claude"], env)
-        elif agent == "codex":
-            env = os.environ.copy()
-            env["OMLX_API_KEY"] = settings["api_key"]
-            cmd = ["codex",
-                   "-c", 'model_provider="omlx"']
-            if model:
-                cmd += ["-c", f'model="{model}"']
-            os.execvpe("codex", cmd, env)
-        else:
-            cmd = ["omlx", "launch", agent]
-            if model:
-                cmd += ["--model", model]
-            cmd += ["--api-key", settings["api_key"]]
-            os.execvp("omlx", cmd)
-    else:
-        cmd = ["ollama", "launch", agent]
-        if model:
-            cmd += ["--model", model]
-        os.execvp("ollama", cmd)
-
-
-# --- Backend classes ---
-
-class OllamaBackend:
-    backend_name = "ollama"
-
-    def __init__(self, model_name):
-        self._model_name = model_name
-        self._version = None
-        self._serve_process = None
-
-    def start(self):
-        self._serve_process = self._ensure_server_running()
-        self._version = self._fetch_version()
-        print(f"  ollama {self._version}", flush=True)
-
-    def cleanup(self):
-        print("\nUnloading model...", flush=True)
-        self._unload_model()
-        # poll() is None while our child server process is still running.
-        if self._serve_process is not None and self._serve_process.poll() is None:
-            print("Stopping ollama server...", flush=True)
-            self._serve_process.terminate()
-            try:
-                self._serve_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._serve_process.kill()
-
-    def launch_command(self, agent, model_name):
-        script = os.path.basename(sys.argv[0]).removesuffix(".py")
-        return f"{script} {agent} {model_name}"
-
-    def _is_server_running(self):
-        try:
-            http_get("/", base_url=OLLAMA_BASE_URL, timeout=2)
-            return True
-        except Exception:
-            return False
-
-    def _wait_for_server_ready(self):
-        OLLAMA_SERVER_START_TIMEOUT_SECONDS = 30
-        OLLAMA_HEALTH_POLL_INTERVAL_SECONDS = 0.5
-
-        deadline = time.time() + OLLAMA_SERVER_START_TIMEOUT_SECONDS
-        while time.time() < deadline:
-            if self._is_server_running():
-                return True
-            time.sleep(OLLAMA_HEALTH_POLL_INTERVAL_SECONDS)
-        return False
-
-    def _start_server(self):
-        return subprocess.Popen(
-            ["ollama", "serve"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-    def _ensure_server_running(self):
-        print("Checking ollama server...", flush=True)
-        if self._is_server_running():
-            print("  Already running. Exiting.", flush=True)
-            sys.exit(1)
-        print("  Starting ollama serve...", flush=True)
-        process = self._start_server()
-        if not self._wait_for_server_ready():
-            print("Error: ollama server did not start in time.", file=sys.stderr)
-            sys.exit(1)
-        print("  Server ready.", flush=True)
-        return process
-
-    def _fetch_version(self):
-        try:
-            body = http_get("/api/version", base_url=OLLAMA_BASE_URL)
-            return json.loads(body).get("version", "unknown")
-        except Exception:
-            return "unknown"
-
-    def _preload_model(self):
-        MODEL_LOAD_TIMEOUT_SECONDS = 120
-
-        try:
-            with http_post(
-                "/api/generate",
-                {"model": self._model_name, "keep_alive": -1},
-                base_url=OLLAMA_BASE_URL,
-                timeout=MODEL_LOAD_TIMEOUT_SECONDS,
-            ) as resp:
-                for raw_line in resp:
-                    stripped = raw_line.strip()
-                    if not stripped:
-                        continue
-                    obj = json.loads(stripped)
-                    if obj.get("error"):
-                        print(f"  Error: {obj['error']}", file=sys.stderr, flush=True)
-                        sys.exit(1)
-                    if obj.get("done_reason"):
-                        print(f"  {obj['done_reason']}", flush=True)
-        except urllib.error.HTTPError as exc:
-            print(f"  HTTP {exc.code}: {exc.read().decode()}", file=sys.stderr, flush=True)
-            sys.exit(1)
-
-    def _unload_model(self):
-        try:
-            with http_post("/api/generate", {"model": self._model_name, "keep_alive": 0}, base_url=OLLAMA_BASE_URL, timeout=10) as resp:
-                resp.read()
-        except Exception:
-            pass
-
-
-class OmlxBackend:
-    backend_name = "omlx"
-
-    _SETTINGS_PATH = os.path.expanduser("~/.omlx/settings.json")
-
-    def __init__(self, model_name, model_dir=None):
-        self._model_name = model_name
-        self._version = None
-        self._serve_process = None
-
-        settings = self._load_settings()
-        self._api_key = settings.get("auth", {}).get("api_key", "")
-        server = settings.get("server", {})
-        host = server.get("host", "127.0.0.1")
-        port = server.get("port", 8000)
-        self._server_url = f"http://{host}:{port}"
-        self._model_dir = (
-            model_dir
-            or settings.get("model", {}).get("model_dir")
-            or os.path.expanduser("~/.omlx/models")
-        )
-
-    def start(self):
-        self._serve_process = self._ensure_server_running()
-        self._version = self._fetch_version()
-        print(f"  omlx {self._version}", flush=True)
-
-    def cleanup(self):
-        # Only stop the server if this session started it; leave pre-existing servers alone.
-        # poll() is None while our child server process is still running.
-        if self._serve_process is not None and self._serve_process.poll() is None:
-            print("\nStopping omlx server...", flush=True)
-            self._serve_process.terminate()
-            try:
-                self._serve_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._serve_process.kill()
-
-    def launch_command(self, agent, model_name):
-        script = os.path.basename(sys.argv[0]).removesuffix(".py")
-        return f"{script} {agent} {model_name}"
-
-    def _load_settings(self):
-        try:
-            with open(self._SETTINGS_PATH) as f:
-                return json.load(f)
-        except Exception:
-            return {}
-
-    def _is_server_running(self):
-        try:
-            http_get("/v1/models", base_url=self._server_url, timeout=2)
-            return True
-        except urllib.error.HTTPError:
-            return True  # any HTTP response means the server is listening
-        except Exception:
-            return False
-
-    def _wait_for_server_ready(self):
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            if self._is_server_running():
-                return True
-            time.sleep(0.5)
-        return False
-
-    def _start_server(self):
-        return subprocess.Popen(["omlx", "serve", "--model-dir", self._model_dir])
-
-    def _ensure_server_running(self):
-        print("Checking omlx server...", flush=True)
-        if self._is_server_running():
-            # omlx is commonly kept running as a service; attach to the existing instance.
-            print("  Attached to running server.", flush=True)
-            return None
-        print("  Starting omlx serve...", flush=True)
-        process = self._start_server()
-        if not self._wait_for_server_ready():
-            print("Error: omlx server did not start in time.", file=sys.stderr)
-            sys.exit(1)
-        print("  Server ready.", flush=True)
-        return process
-
-    def _fetch_version(self):
-        try:
-            headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
-            body = http_get("/api/status", base_url=self._server_url, timeout=5, headers=headers)
-            return json.loads(body).get("version", "unknown")
-        except Exception:
-            return "unknown"
-
-    def _preload_model(self):
-        pass
-
-    def _unload_model(self):
-        pass
-
-
-def _scan_ollama_models():
-    manifests_dir = os.path.expanduser("~/.ollama/models/manifests")
-    if not os.path.isdir(manifests_dir):
-        return None
-    models = []
-    for root, _dirs, files in os.walk(manifests_dir):
-        for fname in files:
-            rel = os.path.relpath(os.path.join(root, fname), manifests_dir)
-            parts = rel.split(os.sep)
-            if len(parts) == 4:
-                registry, namespace, model, tag = parts
-                if registry == "registry.ollama.ai" and namespace == "library":
-                    models.append(f"{model}:{tag}")
-                else:
-                    models.append(f"{registry}/{namespace}/{model}:{tag}")
-    return sorted(models)
-
-
 def list_models():
     script = os.path.basename(sys.argv[0])
     col = 44  # model name column width
 
     print("Available models:")
     print("  Or run: bal --select  for interactive selection\n")
+    model_dirs = local_model_dirs()
 
     # ollama — scan manifest files on disk
     print("ollama")
-    ollama_models = _scan_ollama_models()
+    local_models = scan_local_models_by_backend()
+    ollama_models = local_models["ollama"]
     if ollama_models is None:
-        print(f"     (directory not found: ~/.ollama/models/manifests)")
+        print(f"     (directory not found: {model_dirs['ollama']})")
     elif ollama_models:
         for name in ollama_models:
             print(f"     {name:<{col}} {script} --model {name}")
@@ -658,32 +261,25 @@ def list_models():
 
     # omlx — scan model directory on disk
     print("omlx")
-    model_dir = os.path.expanduser("~/.omlx/models")
-    if os.path.isdir(model_dir):
-        entries = sorted(
-            e for e in os.listdir(model_dir)
-            if os.path.isdir(os.path.join(model_dir, e))
-        )
-        if entries:
-            for name in entries:
+    omlx_models = local_models["omlx"]
+    if omlx_models is not None:
+        if omlx_models:
+            for name in omlx_models:
                 print(f"     {name:<{col}} {script} --model {name} --backend omlx")
         else:
             print("     (no models)")
     else:
-        print(f"     (directory not found: {model_dir})")
+        print(f"     (directory not found: {model_dirs['omlx']})")
 
 
 def init_session(backend, model_name, model_dir=None, dry_run=False):
-    if backend == "omlx":
-        session = OmlxBackend(model_name or "(none)", model_dir=model_dir)
-    else:
-        session = OllamaBackend(model_name or "(none)")
+    session = create_backend(backend, model_name, model_dir=model_dir)
     session.start()
     # Register before preload so preload failures still clean up the backend.
     atexit.register(session.cleanup)
     if not dry_run:
-        print(f"Loading {session._model_name}...", flush=True)
-        session._preload_model()
+        print(f"Loading {session.model_name}...", flush=True)
+        session.preload_model()
     return session
 
 
@@ -805,7 +401,6 @@ def _build_ui(session) -> list:
         ValueMeter("RAM", ram_getter, psutil.virtual_memory().total / (1024**3), unit="GB"),
     ]
 
-    model_name = session._model_name
     agents = ["claude", "codex", "opencode", "openclaw"]
     lines += [
         HorizontalText(""),
@@ -813,7 +408,7 @@ def _build_ui(session) -> list:
         HorizontalText(""),
     ]
     lines += [
-        HorizontalText(f"  {session.launch_command(agent, model_name)}")
+        HorizontalText(f"  {session.launch_command(agent)}")
         for agent in agents
     ]
 
@@ -904,7 +499,10 @@ def main():
     if sys.argv[1] in AGENTS:
         agent = sys.argv[1]
         model_arg = sys.argv[2] if len(sys.argv) > 2 else None
-        backend, settings = _detect_backend()
+        backend = detect_running_backend()
+        if backend is None:
+            print("Error: no backend running (tried omlx and ollama).", file=sys.stderr)
+            sys.exit(1)
 
         if model_arg is None:
             models = _list_available_models()
@@ -914,18 +512,17 @@ def main():
             choice = _select_model_interactive(models)
             if choice is None:
                 return
-            sel_settings = _load_omlx_settings() if choice.backend == "omlx" else None
-            _exec_agent(choice.backend, sel_settings, agent, choice.name)
+            selected_backend = create_backend(choice.backend, choice.name)
+            selected_backend.exec_agent(agent, choice.name)
             return
 
         # Model specified but may exist on multiple backends
         result = _select_backend_for_model(model_arg)
         if result is not None:
-            backend, model_arg = result
-            if backend == "omlx":
-                settings = _load_omlx_settings()
-        model = _resolve_model(backend, settings, model_arg)
-        _exec_agent(backend, settings, agent, model)
+            backend_name, model_arg = result
+            backend = create_backend(backend_name, model_arg)
+        model = backend.resolve_model(model_arg)
+        backend.exec_agent(agent, model)
         return  # unreachable; exec replaces the process
 
     # --- Server mode path ---

@@ -430,7 +430,8 @@ class OllamaBackend:
     def cleanup(self):
         print("\nUnloading model...", flush=True)
         self._unload_model()
-        if self._serve_process is not None and self._serve_process.poll() is not None:
+        # poll() is None while our child server process is still running.
+        if self._serve_process is not None and self._serve_process.poll() is None:
             print("Stopping ollama server...", flush=True)
             self._serve_process.terminate()
             try:
@@ -548,7 +549,8 @@ class OmlxBackend:
 
     def cleanup(self):
         # Only stop the server if this session started it; leave pre-existing servers alone.
-        if self._serve_process is not None and self._serve_process.poll() is not None:
+        # poll() is None while our child server process is still running.
+        if self._serve_process is not None and self._serve_process.poll() is None:
             print("\nStopping omlx server...", flush=True)
             self._serve_process.terminate()
             try:

@@ -470,24 +470,33 @@ def run_input_loop(stop_event: threading.Event):
         stop_event.set()
 
 
+def _run_select():
+    """Interactive model picker flow used by --select and bare invocation."""
+    models = _list_available_models()
+    if not models:
+        print("Error: no models available on any backend.", file=sys.stderr)
+        sys.exit(1)
+    choice = _select_model_interactive(models)
+    if choice is None:
+        return
+    atexit.register(restore_terminal)
+    session = init_session(choice.backend, choice.name, dry_run=False)
+    stop_event = start_session_ui(session)
+    run_input_loop(stop_event)
+
+
 def main():
     # --- Handle --select (interactive model picker) ---
     if "--select" in sys.argv:
         sys.argv.remove("--select")
-        models = _list_available_models()
-        if not models:
-            print("Error: no models available on any backend.", file=sys.stderr)
-            sys.exit(1)
-        choice = _select_model_interactive(models)
-        if choice is None:
-            return
-        atexit.register(restore_terminal)
-        session = init_session(choice.backend, choice.name, dry_run=False)
-        stop_event = start_session_ui(session)
-        run_input_loop(stop_event)
+        _run_select()
         return
 
-    if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help")):
+    if len(sys.argv) == 1:
+        _run_select()
+        return
+
+    if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
         print_help()
         sys.exit(0)
 
@@ -505,15 +514,8 @@ def main():
             sys.exit(1)
 
         if model_arg is None:
-            models = _list_available_models()
-            if not models:
-                print("Error: no models available. Try: bal list", file=sys.stderr)
-                sys.exit(1)
-            choice = _select_model_interactive(models)
-            if choice is None:
-                return
-            selected_backend = create_backend(choice.backend, choice.name)
-            selected_backend.exec_agent(agent, choice.name)
+            model = backend.resolve_model(None)
+            backend.exec_agent(agent, model)
             return
 
         # Model specified but may exist on multiple backends

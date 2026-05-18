@@ -76,7 +76,8 @@ bal --dry-run --backend omlx
 
 | File | Responsibility |
 |---|---|
-| `bal.py` | Entry point. CLI argument parsing, `OllamaBackend` / `OmlxBackend` classes, session UI orchestration, input loop, agent proxy subcommand. See [backends.md](backends.md). |
+| `bal/cli.py` | Full implementation: CLI argument parsing, `OllamaBackend` / `OmlxBackend` classes, session UI orchestration, input loop, agent proxy subcommand. See [backends.md](backends.md). |
+| `bal.py` | Backwards-compatible development shim that delegates to the package entry point. |
 | `widgets/header.py` | `SessionHeader` class — renders and continuously updates the stats line pinned to row 1 of the terminal. See [session_header.md](session_header.md). |
 | `widgets/meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row. See [meter.md](meter.md). |
 | `widgets/horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row. See [horizontal_text.md](horizontal_text.md). |
@@ -132,7 +133,7 @@ Key endpoints used:
 |---|---|---|
 | `/v1/models` | GET | Health check — any HTTP response (including 401) confirms the server is listening |
 
-Version is read by running `omlx --version` as a subprocess.
+Version is read from `GET /api/status`.
 
 Model preloading and unloading are not performed via the API — omlx auto-loads models on first request and uses LRU eviction when memory pressure requires it.
 

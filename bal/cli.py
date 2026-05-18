@@ -102,10 +102,10 @@ usage:
 agents:  claude  codex  opencode  openclaw
 
 server options:
-  --model <name>          model to load (required, unless using --select)
+  --model <name>          model to load (required unless --dry-run or --select)
   --backend ollama|omlx   backend to use (default: ollama)
   --model-dir <path>      model directory (omlx only)
-  --dry-run               start UI without loading a model or server\
+  --dry-run               start server and UI without loading a model\
 """)
 
 

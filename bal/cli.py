@@ -679,10 +679,11 @@ def init_session(backend, model_name, model_dir=None, dry_run=False):
     else:
         session = OllamaBackend(model_name or "(none)")
     session.start()
+    # Register before preload so preload failures still clean up the backend.
+    atexit.register(session.cleanup)
     if not dry_run:
         print(f"Loading {session._model_name}...", flush=True)
         session._preload_model()
-    atexit.register(session.cleanup)
     return session
 
 

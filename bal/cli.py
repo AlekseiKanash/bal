@@ -5,15 +5,11 @@
 import argparse
 import atexit
 import os
-import platform
-import re
 import signal
-import subprocess
 import sys
 import threading
 import time
 
-import psutil
 from importlib.metadata import version as _meta_version
 
 from .backends import (
@@ -25,9 +21,9 @@ from .backends import (
     scan_local_models_by_backend,
 )
 from .widgets.header import SessionHeader
-from .widgets.meter import ValueMeter
 from .widgets.horizontal_text import HorizontalText
 from .widgets.border import Border
+from .widgets.statistics import StatisticsWidget
 
 
 try:
@@ -301,108 +297,17 @@ def _run_update_loop(updatables: list, stop_event: threading.Event):
         stop_event.wait(HEADER_UPDATE_INTERVAL_SECONDS)
 
 
-def _ram_used_gb_macos():
-    """Match Activity Monitor: anonymous pages + wired + compressor pages."""
-    result = subprocess.run(["vm_stat"], capture_output=True, text=True)
-    page_size = 4096
-    stats = {}
-    for line in result.stdout.splitlines():
-        if "page size of" in line:
-            page_size = int(line.split("page size of")[1].split()[0])
-        elif ":" in line:
-            key, _, val = line.partition(":")
-            try:
-                stats[key.strip()] = int(val.strip().rstrip("."))
-            except ValueError:
-                pass
-    anonymous = stats.get("Anonymous pages", 0)
-    wired = stats.get("Pages wired down", 0)
-    compressed = stats.get("Pages occupied by compressor", 0)
-    return (anonymous + wired + compressed) * page_size / (1024**3)
-
-
-def _gpu_load_macos():
-    result = subprocess.run(
-        ["ioreg", "-r", "-d", "1", "-w", "0", "-c", "AGXAccelerator"],
-        capture_output=True, text=True,
-    )
-    match = re.search(r'"Device Utilization %"=(\d+)', result.stdout)
-    return float(match.group(1)) if match else 0.0
-
-
-class _PowermetricsSampler:
-    def __init__(self):
-        self._cpu_w = 0.0
-        self._gpu_w = 0.0
-        self._lock = threading.Lock()
-        threading.Thread(target=self._loop, daemon=True).start()
-
-    def _loop(self):
-        while True:
-            try:
-                result = subprocess.run(
-                    ["sudo", "powermetrics", "--samplers", "cpu_power", "-n", "1", "-i", "1000"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                cpu_w = gpu_w = 0.0
-                for line in result.stdout.splitlines():
-                    if line.startswith("CPU Power:"):
-                        cpu_w = float(line.split(":")[1].strip().split()[0]) / 1000
-                    elif line.startswith("GPU Power:"):
-                        gpu_w = float(line.split(":")[1].strip().split()[0]) / 1000
-                with self._lock:
-                    self._cpu_w = cpu_w
-                    self._gpu_w = gpu_w
-            except Exception:
-                pass
-
-    def cpu_w(self) -> str:
-        with self._lock:
-            return f"{self._cpu_w:.1f}"
-
-    def gpu_w(self) -> str:
-        with self._lock:
-            return f"{self._gpu_w:.1f}"
-
-
-def cpu_getter(precision=0):
-    return f"{psutil.cpu_percent(interval=None):.{precision}f}"
-
-
-def gpu_getter(precision=0):
-    if platform.system() == "Darwin":
-        return f"{_gpu_load_macos():.{precision}f}"
-    return "0"
-
-
-def ram_getter(precision=1):
-    if platform.system() == "Darwin":
-        used_gb = _ram_used_gb_macos()
-    else:
-        mem = psutil.virtual_memory()
-        used_gb = (mem.total - mem.available) / (1024**3)
-    return f"{used_gb:.{precision}f}"
-
-
 def _build_ui(session) -> list:
     """Build and initialize all updatable UI objects. Must be called after terminal is cleared."""
 
     lines = []
-    power = _PowermetricsSampler()
-
-    # Seed the measurement so the first real call returns a delta, not 0.0
-    psutil.cpu_percent(interval=None)
 
     lines += [
         SessionHeader(session, row=1),
         Border(row=2, height=5, width=83),
     ]
 
-    lines += [
-        ValueMeter("CPU", cpu_getter, 100.0, unit="%", secondary_getter=power.cpu_w, secondary_unit="W"),
-        ValueMeter("GPU", gpu_getter, 100.0, unit="%", secondary_getter=power.gpu_w, secondary_unit="W"),
-        ValueMeter("RAM", ram_getter, psutil.virtual_memory().total / (1024**3), unit="GB"),
-    ]
+    lines += [StatisticsWidget()]
 
     agents = ["claude", "codex", "opencode", "openclaw"]
     lines += [
@@ -424,17 +329,12 @@ def _build_sorted_list(updatables) -> list:
     auto = [m for m in updatables if m._row is None]
 
     all_rows = [m._row for m in fixed]
-    lo = min(all_rows) if all_rows else 1
     hi = max(all_rows) if all_rows else 1
 
-    available = sorted(set(range(lo, hi + 1)) - set(all_rows))
     next_auto_row = hi + 1
-    for i, meter in enumerate(auto):
-        if i < len(available):
-            meter._row = available[i]
-        else:
-            meter._row = next_auto_row
-            next_auto_row += 1
+    for widget in auto:
+        widget._row = next_auto_row
+        next_auto_row += getattr(widget, 'height', 1)
 
     all_widgets = fixed + auto
     overlays = [m for m in all_widgets if isinstance(m, Border)]

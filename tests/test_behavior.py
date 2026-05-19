@@ -190,27 +190,6 @@ class CleanupTests(unittest.TestCase):
             attached.cleanup()
 
 
-class InteractiveSelectionTests(unittest.TestCase):
-    def test_line_mode_numeric_selection_returns_matching_model(self):
-        models = [
-            ModelChoice("a", "ollama", "latest", "ollama a"),
-            ModelChoice("b", "omlx", "", "omlx b"),
-        ]
-
-        fake_stdin = SimpleNamespace(fileno=lambda: 0)
-        with (
-            mock.patch.object(cli.sys, "stdin", fake_stdin),
-            mock.patch.object(cli, "_set_raw_mode", return_value=None),
-            mock.patch.object(cli, "_restore_mode"),
-            mock.patch.object(cli, "_show_cursor"),
-            mock.patch("builtins.input", return_value="2"),
-            redirect_stdout(io.StringIO()),
-        ):
-            selected = cli._select_model_interactive(models)
-
-        self.assertEqual(selected, models[1])
-
-
 class AgentExecTests(unittest.TestCase):
     def test_ollama_agent_exec_uses_ollama_launch_command(self):
         backend = OllamaBackend("llama3")
@@ -290,15 +269,33 @@ class MainDispatchTests(unittest.TestCase):
         with mock.patch("sys.argv", ["bal", *argv]):
             cli.main()
 
-    def test_bare_calls_run_select(self):
-        with mock.patch.object(cli, "_run_select") as m:
+    def test_bare_invocation_picks_model_then_starts_session(self):
+        choice = ModelChoice("llama3", "ollama", "latest", "ollama llama3")
+        with (
+            mock.patch.object(cli, "_pick_model", return_value=choice) as pick,
+            mock.patch.object(cli, "_start_session") as start,
+        ):
             self._run()
-        m.assert_called_once()
+        pick.assert_called_once()
+        start.assert_called_once_with("ollama", "llama3", model_dir=None, dry_run=False)
 
-    def test_select_flag_calls_run_select(self):
-        with mock.patch.object(cli, "_run_select") as m:
+    def test_bare_invocation_cancel_skips_session(self):
+        with (
+            mock.patch.object(cli, "_pick_model", return_value=None),
+            mock.patch.object(cli, "_start_session") as start,
+        ):
+            self._run()
+        start.assert_not_called()
+
+    def test_select_flag_picks_model_then_starts_session(self):
+        choice = ModelChoice("llama3", "ollama", "latest", "ollama llama3")
+        with (
+            mock.patch.object(cli, "_pick_model", return_value=choice) as pick,
+            mock.patch.object(cli, "_start_session") as start,
+        ):
             self._run("--select")
-        m.assert_called_once()
+        pick.assert_called_once()
+        start.assert_called_once_with("ollama", "llama3", model_dir=None, dry_run=False)
 
     def test_list_calls_list_models(self):
         with mock.patch.object(cli, "list_models") as m:
@@ -315,17 +312,15 @@ class MainDispatchTests(unittest.TestCase):
             self._run("claude", "qwen3")
         m.assert_called_once_with("claude", "qwen3")
 
-    def test_server_model_calls_run_server(self):
-        with mock.patch.object(cli, "_run_server") as m:
+    def test_server_model_calls_start_session(self):
+        with mock.patch.object(cli, "_start_session") as m:
             self._run("--model", "qwen3")
-        m.assert_called_once()
-        self.assertEqual(m.call_args[0][0].server_model, "qwen3")
+        m.assert_called_once_with("ollama", "qwen3", model_dir=None, dry_run=False)
 
-    def test_server_dry_run_calls_run_server(self):
-        with mock.patch.object(cli, "_run_server") as m:
+    def test_server_dry_run_calls_start_session(self):
+        with mock.patch.object(cli, "_start_session") as m:
             self._run("--dry-run")
-        m.assert_called_once()
-        self.assertTrue(m.call_args[0][0].dry_run)
+        m.assert_called_once_with("ollama", None, model_dir=None, dry_run=True)
 
 
 if __name__ == "__main__":

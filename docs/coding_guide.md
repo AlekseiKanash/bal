@@ -3,7 +3,7 @@
 ## Language and dependencies
 
 - Python 3
-- Third-party packages: `psutil` (system metrics). Install via `pip install -r requirements.txt`.
+- Third-party packages: `psutil` (system metrics), `simple-term-menu` (interactive picker). Install via `pip install -r requirements.txt`.
 - Additional packages require developer approval before installation
 
 ## Style
@@ -18,3 +18,5 @@
 
 - Prefer reuse over duplication
 - Code and documentation should be readable by both humans and LLMs — keep it clear
+
+See [coding_philosophy.md](coding_philosophy.md) for design rules with LLM-reviewable detection signals.

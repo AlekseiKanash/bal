@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">= 3.11"
 dependencies = [
     "psutil >= 5.9",
+    "simple-term-menu >= 1.6",
 ]
 license = { text = "MIT" }
 authors = [

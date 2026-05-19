@@ -12,6 +12,8 @@ import time
 
 from importlib.metadata import version as _meta_version
 
+from simple_term_menu import TerminalMenu
+
 from .backends import (
     create_backend,
     detect_running_backend,
@@ -44,38 +46,6 @@ HEADER_UPDATE_INTERVAL_SECONDS = 1
 INPUT_PROMPT = "> "
 
 AGENTS = {"claude", "codex", "opencode", "openclaw"}
-
-
-def _set_raw_mode(fd):
-    """Set fd (stdin) into raw mode for single-character input."""
-    import termios
-    try:
-        old = termios.tcgetattr(fd)
-    except termios.error:
-        return None
-    new = old[:]
-    new[3] = new[3] & ~termios.ICANON & ~termios.ECHO
-    termios.tcsetattr(fd, termios.TCSADRAIN, new)
-    return old
-
-
-def _restore_mode(fd, old):
-    """Restore terminal to previous state."""
-    if old is not None:
-        import termios
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-
-def _show_cursor():
-    sys.stdout.write("\033[?25h")
-    sys.stdout.flush()
-
-
-def _get_terminal_height():
-    try:
-        return int(os.environ.get("LINES", 24))
-    except (ValueError, TypeError):
-        return 24
 
 
 def parse_args():
@@ -114,101 +84,27 @@ def _list_available_models():
     return list_available_models()
 
 
-def _select_model_interactive(models):
-    """Display an interactive numbered menu and return the selected ModelChoice."""
+def _pick_model():
+    """Interactively select a model; returns ModelChoice or None if cancelled."""
+    models = _list_available_models()
     if not models:
-        print("No models available.", file=sys.stderr)
+        print("Error: no models available on any backend.", file=sys.stderr)
+        sys.exit(1)
+    idx = TerminalMenu([m.display for m in models], title="Select a model").show()
+    if idx is None:
         return None
+    return models[idx]
 
-    selected = 0
-    old_mode = _set_raw_mode(sys.stdin.fileno())
 
-    def render():
-        lines = []
-        h = _get_terminal_height()
-        max_display = min(len(models), h - 8)
-        start = max(0, min(selected - max_display // 2, len(models) - max_display))
-        end = start + max_display
-
-        lines.append("\033[2J\033[H")
-        lines.append("\033[?25l")
-        lines.append(f"\n  Select a model ({len(models)} available)\n")
-        for i, m in enumerate(models[start:end]):
-            idx = start + i + 1
-            marker = "\033[34m >\033[0m" if i == selected else "  "
-            lines.append(f"{marker} {idx}. {m.display}")
-        lines.append(f"\n  Arrow keys: navigate  Enter: select  Esc/Ctrl+C: cancel")
-        sys.stdout.write("".join(lines))
-        sys.stdout.flush()
-
-    def read_char():
-        if old_mode is not None:
-            c = sys.stdin.buffer.read(1)
-            if len(c) == 0:
-                return ""
-            if c == b"\x1b":
-                c2 = sys.stdin.buffer.read(1)
-                if c2 == b"[":
-                    c3 = sys.stdin.buffer.read(1)
-                    if c3 == b"A":
-                        return "UP"
-                    elif c3 == b"B":
-                        return "DOWN"
-                    elif c3 == b"C":
-                        return "RIGHT"
-                    elif c3 == b"D":
-                        return "LEFT"
-                    return ""
-                return "ESC"
-            return c.decode("utf-8", errors="replace")
-        else:
-            try:
-                return input(f"\nChoice [1-{len(models)}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                return "\x03"
-
-    try:
-        render()
-        while True:
-            key = read_char()
-            if old_mode is not None:
-                # Raw mode: arrow keys navigate, Enter selects, Esc cancels
-                if key == "DOWN" or key == "RIGHT":
-                    selected = (selected + 1) % len(models)
-                    render()
-                elif key == "UP" or key == "LEFT":
-                    selected = (selected - 1) % len(models)
-                    render()
-                elif key == "\n" or key == "\r":
-                    print()
-                    _restore_mode(sys.stdin.fileno(), old_mode)
-                    _show_cursor()
-                    return models[selected]
-                elif key == "\x03" or key == "ESC" or key == "q":
-                    print("\nCancelled.")
-                    _restore_mode(sys.stdin.fileno(), old_mode)
-                    _show_cursor()
-                    return None
-            else:
-                # Line mode: single digit is a selection
-                if key.isdigit():
-                    n = int(key)
-                    if 1 <= n <= len(models):
-                        print()
-                        _restore_mode(sys.stdin.fileno(), old_mode)
-                        _show_cursor()
-                        return models[n - 1]
-                elif key == "\x03":
-                    print("\nCancelled.")
-                    _restore_mode(sys.stdin.fileno(), old_mode)
-                    _show_cursor()
-                    return None
-    except KeyboardInterrupt:
-        print()
-        return None
-    finally:
-        _restore_mode(sys.stdin.fileno(), old_mode)
-        _show_cursor()
+def _resolve_session_params(args):
+    """Return (backend, model_name, model_dir, dry_run) or None if cancelled."""
+    bare = args.command is None and args.server_model is None and not args.dry_run
+    if args.select or bare:
+        choice = _pick_model()
+        if choice is None:
+            return None
+        return choice.backend, choice.name, None, False
+    return args.backend, args.server_model, args.model_dir, args.dry_run
 
 
 def _select_backend_for_model(model_name):
@@ -373,17 +269,9 @@ def run_input_loop(stop_event: threading.Event):
         stop_event.set()
 
 
-def _run_select():
-    """Interactive model picker flow used by --select and bare invocation."""
-    models = _list_available_models()
-    if not models:
-        print("Error: no models available on any backend.", file=sys.stderr)
-        sys.exit(1)
-    choice = _select_model_interactive(models)
-    if choice is None:
-        return
+def _start_session(backend, model_name, *, model_dir=None, dry_run=False):
     atexit.register(restore_terminal)
-    session = init_session(choice.backend, choice.name, dry_run=False)
+    session = init_session(backend, model_name, model_dir=model_dir, dry_run=dry_run)
     stop_event = start_session_ui(session)
     run_input_loop(stop_event)
 
@@ -403,23 +291,18 @@ def _run_agent(agent, model_arg):
     backend.exec_agent(agent, backend.resolve_model(model_arg))
 
 
-def _run_server(args):
-    if args.server_model is None and not args.dry_run:
-        print("Error: --model is required (or use --dry-run or --select)", file=sys.stderr)
-        sys.exit(1)
-    atexit.register(restore_terminal)
-    session = init_session(args.backend, args.server_model, model_dir=args.model_dir, dry_run=args.dry_run)
-    stop_event = start_session_ui(session)
-    run_input_loop(stop_event)
-
-
 def main():
     args = parse_args()
-    if args.select or (args.command is None and args.server_model is None and not args.dry_run):
-        _run_select()
-    elif args.command == "list":
+
+    if args.command == "list":
         list_models()
-    elif args.command in AGENTS:
+        return
+    if args.command in AGENTS:
         _run_agent(args.command, args.model_arg)
-    else:
-        _run_server(args)
+        return
+
+    params = _resolve_session_params(args)
+    if params is None:
+        return
+    backend, model_name, model_dir, dry_run = params
+    _start_session(backend, model_name, model_dir=model_dir, dry_run=dry_run)

@@ -42,14 +42,12 @@ def list_available_models():
 
 
 def find_backend_model_matches(model_name):
-    matching = []
-    for m in fetch_ollama_models():
-        if model_name in m.name or m.name in model_name:
-            matching.append((m.backend, m.name))
-    for m in fetch_omlx_models():
-        if model_name in m.name or m.name in model_name:
-            matching.append((m.backend, m.name))
-    return matching
+    all_models = fetch_ollama_models() + fetch_omlx_models()
+    return [
+        (m.backend, m.name)
+        for m in all_models
+        if model_name in m.name or m.name in model_name
+    ]
 
 
 def scan_local_models_by_backend():
@@ -62,5 +60,5 @@ def scan_local_models_by_backend():
 def local_model_dirs():
     return {
         "ollama": "~/.ollama/models/manifests",
-        "omlx": omlx.default_model_dir(),
+        "omlx": omlx.DEFAULT_MODEL_DIR,
     }

@@ -3,8 +3,6 @@ set -euo pipefail
 
 INSTALL_DIR="$HOME/.local/share/bal"
 BIN_DIR="$HOME/.local/bin"
-BIN_PATH="$BIN_DIR/bal"
-VENV_DIR="$INSTALL_DIR/venv"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -12,21 +10,17 @@ echo "Installing bal to $INSTALL_DIR"
 
 mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 
-cp "$SCRIPT_DIR/bal.py" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
-cp -r "$SCRIPT_DIR/widgets" "$INSTALL_DIR/"
-
 echo "Creating virtual environment..."
-python3 -m venv "$VENV_DIR"
-"$VENV_DIR/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
+python3 -m venv "$INSTALL_DIR/venv"
+"$INSTALL_DIR/venv/bin/pip" install -q "$SCRIPT_DIR"
 
-cat > "$BIN_PATH" <<EOF
+cat > "$BIN_DIR/bal" <<EOF
 #!/bin/bash
-exec "$VENV_DIR/bin/python" "$INSTALL_DIR/bal.py" "\$@"
+exec "$INSTALL_DIR/venv/bin/bal" "\$@"
 EOF
-chmod +x "$BIN_PATH"
+chmod +x "$BIN_DIR/bal"
 
-echo "Installed: $BIN_PATH"
+echo "Installed: $BIN_DIR/bal"
 
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo ""

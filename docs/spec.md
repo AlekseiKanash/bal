@@ -17,7 +17,9 @@ Two backends are supported:
 ## Usage
 
 ```
-bal <agent> [model]          launch agent against running backend
+bal                          interactively pick a model and start server
+bal --select                 same as bare invocation
+bal <agent> [model]          launch agent; omitting model uses the currently loaded one
 bal list                     show available models (no server needed)
 bal --model <name> [options] start server, load model, show live UI
 
@@ -27,10 +29,10 @@ agents:  claude  codex  opencode  openclaw
 Typical two-terminal workflow:
 
 ```
-# Terminal 1 — start server and load model
-bal --model Qwen3 --backend omlx
+# Terminal 1 — pick a model and start server
+bal
 
-# Terminal 2 — launch an agent against it
+# Terminal 2 — launch an agent against the loaded model
 bal claude
 bal claude Qwen3   # explicit model name
 ```
@@ -76,7 +78,9 @@ bal --dry-run --backend omlx
 
 | File | Responsibility |
 |---|---|
-| `bal.py` | Entry point. CLI argument parsing, `OllamaBackend` / `OmlxBackend` classes, session UI orchestration, input loop, agent proxy subcommand. See [backends.md](backends.md). |
+| `bal/cli.py` | CLI argument parsing, session UI orchestration, input loop, and agent proxy dispatch through the backend bridge. |
+| `bal/backends/` | Backend bridge package containing the shared interface, factories, model discovery, and concrete ollama/omlx implementations. See [backends.md](backends.md). |
+| `bal.py` | Backwards-compatible development shim that delegates to the package entry point. |
 | `widgets/header.py` | `SessionHeader` class — renders and continuously updates the stats line pinned to row 1 of the terminal. See [session_header.md](session_header.md). |
 | `widgets/meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row. See [meter.md](meter.md). |
 | `widgets/horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row. See [horizontal_text.md](horizontal_text.md). |
@@ -88,13 +92,14 @@ Both backend classes expose the same interface so the rest of the code is backen
 
 | Member | Type | Description |
 |---|---|---|
-| `backend_name` | class attr `str` | `"ollama"` or `"omlx"` |
-| `_model_name` | instance attr `str` | Model name passed via `--model` |
-| `_version` | instance attr `str \| None` | Server version; populated by `start()` |
-| `start()` | method | Start or attach to the server, populate `_version` |
+| `backend_name` | attr `str` | `"ollama"` or `"omlx"` |
+| `model_name` | property `str` | Model name passed via `--model` |
+| `version` | property `str \| None` | Server version; populated by `start()` |
+| `start()` | method | Start or attach to the server, populate `version` |
 | `cleanup()` | method | Unload the model and stop the server (if we started it) |
-| `_preload_model()` | method | Load the model (no-op for omlx) |
-| `_unload_model()` | method | Unload the model (no-op for omlx) |
+| `preload_model()` | method | Load the model into memory eagerly before showing the UI |
+| `launch_command(agent)` | method | Return the UI hint command |
+| `resolve_model(model_arg)` / `exec_agent(agent, model)` | methods | Agent proxy resolution and execution |
 
 ## Ollama Backend
 
@@ -131,10 +136,11 @@ Key endpoints used:
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/v1/models` | GET | Health check — any HTTP response (including 401) confirms the server is listening |
+| `/v1/chat/completions` | POST | Triggers eager model load during `preload_model()` |
 
-Version is read by running `omlx --version` as a subprocess.
+Version is read from `GET /api/status`.
 
-Model preloading and unloading are not performed via the API — omlx auto-loads models on first request and uses LRU eviction when memory pressure requires it.
+**Model preloading:** `preload_model()` sends a minimal `POST /v1/chat/completions` request (`max_tokens: 1`) to force the model into memory before the UI appears. Without this, omlx loads models lazily on the first real agent request.
 
 **API key authentication:** omlx enables API key auth by default, so `GET /v1/models` returns 401 when no key is supplied. The health check treats any HTTP-level response as "server is up" — only connection-level failures (refused, timeout) count as "not running".
 
@@ -142,14 +148,14 @@ omlx is commonly kept running as a persistent background service (e.g. via `brew
 
 ## Startup Sequence (Server Mode)
 
-1. Parse CLI arguments. Exit with a clear error if `--model` is missing and `--dry-run` is not set.
+1. Parse CLI arguments with argparse. Route to the appropriate mode: interactive picker (bare / `--select`), `list`, agent proxy, or server mode. In server mode, exit with a clear error if `--model` is missing and `--dry-run` is not set.
 2. Check if the backend server is already running using its health endpoint.
    - **ollama — already running**: exit with code 1 (the script wants exclusive control for model lifecycle management).
    - **ollama — not running**: start `ollama serve` as a background subprocess and poll the health endpoint until it responds (up to 30 seconds).
-   - **omlx — already running**: attach to the existing instance; `_serve_process` remains `None` so cleanup will not stop it.
+   - **omlx — already running**: attach to the existing instance; cleanup will not stop it.
    - **omlx — not running**: start `omlx serve --model-dir <path>` as a background subprocess and poll until ready (up to 30 seconds).
 3. Retrieve the server version.
-4. Unless `--dry-run`: load the model into memory. For ollama this streams progress to stdout; for omlx this is a no-op.
+4. Unless `--dry-run`: load the model into memory eagerly. For ollama, POST `/api/generate` with `keep_alive: -1` streams progress to stdout. For omlx, POST `/v1/chat/completions` with `max_tokens: 1` triggers the load; a warning is printed if this fails but the session continues.
 5. Clear the terminal and build the widget UI.
 6. Enter the command input loop.
 
@@ -166,7 +172,7 @@ BAL | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
 BAL | omlx 0.3.8   | Loaded: llama3 | Running: 0:02:34
 ```
 
-The backend name in the header comes from the backend's `backend_name` attribute.
+The backend name in the header comes from the backend's `backend_name` attribute; model and version come from public properties.
 
 ## System Meters
 
@@ -192,7 +198,7 @@ All widgets implement `tick(now: float)`. The update loop calls every widget's `
 
 ## Agent Hints
 
-Below the meter border, the UI displays a static section showing how to launch each agent against the running model. Commands are generated by `backend.launch_command(agent, model_name)` and are identical for both backends:
+Below the meter border, the UI displays a static section showing how to launch each agent against the running model. Commands are generated by `backend.launch_command(agent)` and are identical for both backends:
 
 ```
   bal claude <model-name>
@@ -210,20 +216,21 @@ When the first argument is an agent name, the script auto-detects the running ba
 2. Try `GET http://localhost:11434/` — 200 OK → ollama
 3. Neither responding → error and exit 1
 
-**Model resolution:**
+**Model resolution (`backend.resolve_model(model_arg)`):**
 - Model name provided as second argument → use it directly
-- Omitted + omlx → query `GET /v1/models`, use `data[0].id`
-- Omitted + ollama → omit `--model` from the launch command
+- Omitted + omlx → query `GET /v1/models`, use `data[0].id` (the currently loaded model)
+- Omitted + ollama → pass `None` to `exec_agent`; `ollama launch` runs without `--model`, using the currently loaded model
 
-**Command construction (`_exec_agent`):**
+**Command construction (`backend.exec_agent(agent, model)`):**
 
 | Backend | Agent | Command |
 |---|---|---|
 | omlx | `claude` | `os.execvpe("claude", ...)` with `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`, `API_TIMEOUT_MS=3000000`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` |
+| omlx | `codex` | `os.execvpe("codex", ["codex", "-c", 'model_provider="omlx"', "-c", 'model="<model>"'], env)` with `OMLX_API_KEY` — avoids `omlx launch` which permanently corrupts `~/.codex/config.toml` |
 | omlx | others | `omlx launch <agent> [--model <model>] --api-key <key>` |
 | ollama | any | `ollama launch <agent> [--model <model>]` |
 
-Settings (`api_key`, `server_url`) are read from `~/.omlx/settings.json` via `_load_omlx_settings()`.
+Settings (`api_key`, `server_url`) are read from `~/.omlx/settings.json` by the omlx backend implementation.
 
 ## Input Loop
 

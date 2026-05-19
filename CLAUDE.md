@@ -1,69 +1,55 @@
 # CLAUDE.md
 
-Python 3 CLI tool (bal — LLM Backend Launcher) that manages a local LLM session via ollama or omlx: starts the server, loads a model, shows a live stats header, and runs an input loop. Also works as a proxy to launch agents against an already-running backend.
-
 ## Project map
 
 | File | What it is |
 |---|---|
-| `bal.py` | Entry point. `OllamaBackend` / `OmlxBackend` classes + CLI arg parsing, session UI, input loop, agent proxy subcommand |
-| `requirements.txt` | Python dependencies (`psutil`) |
-| `install.sh` | Installs the tool to `~/.local/share/bal/` and creates a wrapper at `~/.local/bin/bal` |
-| `widgets/header.py` | `SessionHeader` class — ANSI stats line pinned to a fixed terminal row |
-| `widgets/meter.py` | `ValueMeter` class — progress bar + sparkline widget pinned to a fixed terminal row |
-| `widgets/horizontal_text.py` | `HorizontalText` class — renders a single line of text pinned to a fixed terminal row |
-| `widgets/border.py` | `Border` class — rectangular frame overlay; always rendered last so frame chars appear on top of content |
-| `docs/spec.md` | Full specification — architecture, endpoints, startup sequence, termination |
-| `docs/backends.md` | `OllamaBackend` / `OmlxBackend` reference — attributes, `start()`, `cleanup()`, private methods |
-| `docs/session_header.md` | `SessionHeader` reference — constructor, `start()`, `tick()`, ANSI sequence |
-| `docs/meter.md` | `ValueMeter` reference — constructor, `tick()`, `render()`, `draw()` |
-| `docs/horizontal_text.md` | `HorizontalText` reference — constructor, `tick()`, ANSI sequence |
-| `docs/border.md` | `Border` reference — constructor, `tick()`, `draw()`, Z-order behavior |
-
-## CLI usage
-
-```
-# Terminal 1 — start server and load model
-bal --model Qwen3 --backend omlx
-
-# Terminal 2 — launch an agent against the running backend
-bal claude            # auto-detect backend, use loaded model
-bal claude Qwen3      # explicit model
-
-# Subcommands
-bal list              # show available models on disk (no server needed)
-```
-
-Supported agents: `claude`, `codex`, `opencode`, `openclaw`
+| `bal/cli.py` | CLI, UI orchestration, agent proxy dispatch, `main()` |
+| `bal/backends/` | Backend bridge, factories, model discovery, ollama/omlx implementations |
+| `bal/__init__.py` | Re-exports `main` from `bal.cli` |
+| `bal/__main__.py` | `python -m bal` entry point |
+| `bal.py` | Dev shim — `from bal import main` |
+| `pyproject.toml` | Package metadata + setuptools-scm versioning |
+| `install.sh` | Creates venv in `~/.local/share/bal/`, pip-installs from source, links `~/.local/bin/bal` |
+| `Formula/bal.rb` | Homebrew formula — update `url` and `sha256` on each release |
+| `bal/widgets/header.py` | `SessionHeader` — ANSI stats line pinned to a fixed terminal row |
+| `bal/widgets/meter.py` | `ValueMeter` — progress bar + sparkline pinned to a fixed terminal row |
+| `bal/widgets/horizontal_text.py` | `HorizontalText` — single line of text pinned to a fixed terminal row |
+| `bal/widgets/border.py` | `Border` — rectangular frame overlay; always rendered last |
+| `docs/spec.md` | Architecture, endpoints, startup sequence, termination |
+| `docs/backends.md` | `OllamaBackend` / `OmlxBackend` reference |
+| `docs/session_header.md` | `SessionHeader` reference |
+| `docs/meter.md` | `ValueMeter` reference |
+| `docs/horizontal_text.md` | `HorizontalText` reference |
+| `docs/border.md` | `Border` reference |
+| `docs/coding_guide.md` | Style rules and dependency policy |
+| `docs/coding_philosophy.md` | Design principles with LLM-reviewable detection signals |
 
 ## Key facts
 
-- Two backends supported: `ollama` (REST on `http://localhost:11434`) and `omlx` (OpenAI-compatible REST on `http://localhost:8000`); selected via `--backend`
-- `http_get` / `http_post` accept a `base_url` parameter so both backends share the same HTTP helpers
-- `psutil` is used for system metrics (CPU utilization); `psutil.cpu_percent(interval=None)` is seeded once in `_build_ui` before any widget reads it
-- CPU/GPU power consumption read by `_PowermetricsSampler` — background daemon thread running `sudo powermetrics`; getters read from a lock-protected cache
-- Each backend class (`OllamaBackend`, `OmlxBackend`) exposes the same interface: `backend_name`, `_model_name`, `_version`, `start()`, `cleanup()`, `_preload_model()`, `_unload_model()`, `launch_command(agent, model_name)`
-- `OmlxBackend` reads `~/.omlx/settings.json` at init time for `auth.api_key`, `server.host`, `server.port`, and `model.model_dir`
-- Both `OllamaBackend.launch_command()` and `OmlxBackend.launch_command()` produce `bal <agent> <model>` — the UI hints always show the user-facing CLI, not the raw backend command
-- omlx health check treats any HTTP response (including 401) as "server up" — auth is enabled by default so unauthenticated requests return 401
-- omlx attaches to a pre-existing server instead of exiting; `_serve_process` stays `None` so cleanup does not stop it
-- Session is created by `init_session(backend, model_name, model_dir, dry_run)`, which calls `start()` and conditionally `_preload_model()`; skips both when `--dry-run` is set
-- `SessionHeader` reads `backend_name`, `_version`, and `_model_name` directly from the session instance
-- `bal.py list` scans `~/.ollama/models/manifests` (ollama) and `~/.omlx/models` (omlx) from disk — no server required
-- Update loop in `_run_update_loop`: calls `tick(now)` on every widget, then flushes stdout once — single flush prevents flicker between intermediate draw states
-- `_build_sorted_list` assigns rows to auto widgets, sorts by `_row`, then appends `Border` instances last so they render as overlays
-- Graceful shutdown registered via `atexit` — unloads model, stops server only if we started it
+- `http_get` / `http_post` live in `bal.backends.base` and accept a `base_url` parameter so both backends share the same HTTP helpers
+- `psutil.cpu_percent(interval=None)` is seeded once in `_build_ui` before any widget reads it — prevents the first tick returning 0.0
+- `_PowermetricsSampler` — background daemon thread running `sudo powermetrics`; `cpu_w()` / `gpu_w()` read from a lock-protected cache
+- Both backends expose the same public interface: `backend_name`, `model_name`, `version`, `start()`, `cleanup()`, `preload_model()`, `launch_command(agent)`, `resolve_model(model_arg)`, `exec_agent(agent, model)`
+- `OmlxBackend` reads `~/.omlx/settings.json` at init time for `auth.api_key`, `server.host`, `server.port`, `model.model_dir`
+- omlx source repo: https://github.com/jundot/omlx — refer to it for API details
+- omlx health check treats any HTTP response (including 401) as "server up" — auth is on by default so unauthenticated requests return 401
+- omlx attaches to a pre-existing server; `_serve_process` stays `None` so cleanup never stops it
+- `init_session(backend, model_name, model_dir, dry_run)` — calls `start()` and conditionally `preload_model()`; `--dry-run` skips model preload only
+- `SessionHeader` reads `backend_name`, `version`, and `model_name` directly from the session instance
+- `_run_update_loop`: calls `tick(now)` on every widget then flushes stdout once — single flush prevents flicker
+- `_build_sorted_list`: assigns rows to auto widgets, sorts by `_row`, appends `Border` instances last so they render as overlays
+- Graceful shutdown via `atexit` — unloads model, stops server only if this session started it
+- `_pick_model()` — shows interactive `TerminalMenu` over available models; returns `ModelChoice` or `None` if cancelled
+- `_resolve_session_params(args)` — returns `(backend, model_name, model_dir, dry_run)` from picker (bare/--select) or from CLI args; `None` if picker cancelled
 
 ## Agent proxy subcommand
 
-`_load_omlx_settings()` — standalone helper that reads `~/.omlx/settings.json` and returns `{api_key, server_url}`
-
-`_detect_backend()` — tries omlx first (any HTTP response = up), then ollama (200 OK = up); exits with error if neither is running
-
-`_resolve_model(backend, settings, model_arg)` — returns `model_arg` if provided; for omlx queries `GET /v1/models` and returns `data[0].id`; for ollama returns `None` (omits `--model`)
-
-`_exec_agent(backend, settings, agent, model)` — builds and `os.execvp`/`os.execvpe`s the agent command; for omlx+claude sets `ANTHROPIC_*` env vars
+- `detect_running_backend()` — tries omlx first (any HTTP response = up), then ollama (200 OK = up)
+- `resolve_model(model_arg)` — returns `model_arg` if given; for omlx with no argument queries `GET /v1/models` and returns `data[0].id`; for ollama returns `None`
+- `exec_agent(agent, model)` — `os.execvp`/`os.execvpe`s the agent; for omlx+claude sets `ANTHROPIC_*` env vars; for omlx+codex execs `codex -c 'model_provider="omlx"' -c 'model="<model>"'` with `OMLX_API_KEY` — bypasses `omlx launch codex` which permanently corrupts `~/.codex/config.toml`
+- `codex_models_cache.json` — copy of `~/.codex/models_cache.json` with Qwen model entries added; symlink `~/.codex/models_cache.json` → this file to suppress "Model metadata not found" warnings
 
 ## Coding guide
 
-See [docs/coding_guide.md](docs/coding_guide.md).
+See [docs/coding_guide.md](docs/coding_guide.md) and [docs/coding_philosophy.md](docs/coding_philosophy.md).

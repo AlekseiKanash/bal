@@ -45,7 +45,7 @@ else:
 HEADER_UPDATE_INTERVAL_SECONDS = 1
 INPUT_PROMPT = "> "
 
-AGENTS = {"claude", "codex", "opencode", "openclaw"}
+AGENTS = ("claude", "codex", "opencode", "openclaw")
 
 
 def parse_args():
@@ -79,14 +79,9 @@ bare invocation or --select opens the interactive model picker.""",
     return parser.parse_args()
 
 
-def _list_available_models():
-    """Return all available models from both backends as ModelChoice objects."""
-    return list_available_models()
-
-
 def _pick_model():
     """Interactively select a model; returns ModelChoice or None if cancelled."""
-    models = _list_available_models()
+    models = list_available_models()
     if not models:
         print("Error: no models available on any backend.", file=sys.stderr)
         sys.exit(1)
@@ -205,7 +200,6 @@ def _build_ui(session) -> list:
 
     lines += [StatisticsWidget()]
 
-    agents = ["claude", "codex", "opencode", "openclaw"]
     lines += [
         HorizontalText(""),
         HorizontalText("─── How to run using an agent ───────────────────────────────────────────────────"),
@@ -213,7 +207,7 @@ def _build_ui(session) -> list:
     ]
     lines += [
         HorizontalText(f"  {session.launch_command(agent)}")
-        for agent in agents
+        for agent in AGENTS
     ]
 
     return _build_sorted_list(lines)

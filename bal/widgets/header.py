@@ -16,9 +16,6 @@ class SessionHeader:
         self._row = row
         self._start_time = time.time()
 
-    def start(self):
-        """Record start time and do the initial render. Call after terminal is cleared."""
-
     def tick(self, now: float) -> None:
         """Re-render the header line in-place using ANSI save/restore cursor."""
         elapsed = now - self._start_time

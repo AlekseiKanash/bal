@@ -211,7 +211,3 @@ def scan_models():
         e for e in os.listdir(model_dir)
         if os.path.isdir(os.path.join(model_dir, e))
     )
-
-
-def default_model_dir():
-    return DEFAULT_MODEL_DIR

@@ -28,6 +28,10 @@ def _load_settings():
     }
 
 
+def _auth_headers(api_key):
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+
 class OmlxBackend:
     backend_name = "omlx"
 
@@ -70,8 +74,8 @@ class OmlxBackend:
         if model_arg:
             return model_arg
         try:
-            headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
-            body = http_get("/v1/models", base_url=self._server_url, timeout=2, headers=headers)
+            body = http_get("/v1/models", base_url=self._server_url, timeout=2,
+                            headers=_auth_headers(self._api_key))
             data = json.loads(body).get("data", [])
             if data:
                 return data[0]["id"]
@@ -106,7 +110,6 @@ class OmlxBackend:
             os.execvp("omlx", cmd)
 
     def preload_model(self):
-        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         try:
             with http_post(
                 "/v1/chat/completions",
@@ -116,7 +119,7 @@ class OmlxBackend:
                     "max_tokens": 1,
                 },
                 base_url=self._server_url,
-                headers=headers,
+                headers=_auth_headers(self._api_key),
                 timeout=120,
             ) as resp:
                 resp.read()
@@ -138,10 +141,9 @@ class OmlxBackend:
     def fetch_models(cls):
         choices = []
         settings = _load_settings()
-        api_key = settings["api_key"]
-        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         try:
-            body = http_get("/v1/models", base_url=settings["server_url"], timeout=5, headers=headers)
+            body = http_get("/v1/models", base_url=settings["server_url"], timeout=5,
+                            headers=_auth_headers(settings["api_key"]))
             data = json.loads(body)
             for m in data.get("data", []):
                 model_id = m.get("id", "")
@@ -199,8 +201,8 @@ class OmlxBackend:
 
     def _fetch_version(self):
         try:
-            headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
-            body = http_get("/api/status", base_url=self._server_url, timeout=5, headers=headers)
+            body = http_get("/api/status", base_url=self._server_url, timeout=5,
+                            headers=_auth_headers(self._api_key))
             return json.loads(body).get("version", "unknown")
         except Exception:
             return "unknown"

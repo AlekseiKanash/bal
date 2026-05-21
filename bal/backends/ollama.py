@@ -5,16 +5,17 @@ import sys
 import time
 import urllib.error
 
-from .base import ModelChoice, http_get, http_post
-
+from .base import ModelChoice, http_get, http_post, register
 
 OLLAMA_BASE_URL = "http://localhost:11434"
+_OLLAMA_DEFAULT_REGISTRY = "registry.ollama.ai"
+_OLLAMA_DEFAULT_NAMESPACE = "library"
 
 
 class OllamaBackend:
     backend_name = "ollama"
 
-    def __init__(self, model_name):
+    def __init__(self, model_name=None, model_dir=None):
         self._model_name = model_name
         self._version = None
         self._serve_process = None
@@ -30,12 +31,11 @@ class OllamaBackend:
     def start(self):
         self._serve_process = self._ensure_server_running()
         self._version = self._fetch_version()
-        print(f"  ollama {self._version}", flush=True)
+        print(f"  {self.backend_name} {self._version}", flush=True)
 
     def cleanup(self):
         print("\nUnloading model...", flush=True)
         self._unload_model()
-        # poll() is None while our child server process is still running.
         if self._serve_process is not None and self._serve_process.poll() is None:
             print("Stopping ollama server...", flush=True)
             self._serve_process.terminate()
@@ -81,8 +81,50 @@ class OllamaBackend:
             print(f"  HTTP {exc.code}: {exc.read().decode()}", file=sys.stderr, flush=True)
             sys.exit(1)
 
-    def _is_server_running(self):
-        return is_server_running()
+    @classmethod
+    def is_server_running(cls):
+        try:
+            http_get("/", base_url=OLLAMA_BASE_URL, timeout=2)
+            return True
+        except Exception:
+            return False
+
+    @classmethod
+    def fetch_models(cls):
+        choices = []
+        try:
+            body = http_get("/api/tags", base_url=OLLAMA_BASE_URL, timeout=5)
+            data = json.loads(body)
+            for m in data.get("models", []):
+                name = m.get("name", "")
+                tag = name.split(":")[-1] if ":" in name else ""
+                choices.append(ModelChoice(name=name, backend=cls.backend_name, version=tag,
+                                           display=f"{cls.backend_name} {name}"))
+        except Exception:
+            pass
+        return choices
+
+    @classmethod
+    def scan_models(cls):
+        manifests_dir = os.path.expanduser("~/.ollama/models/manifests")
+        if not os.path.isdir(manifests_dir):
+            return None
+        models = []
+        for root, _dirs, files in os.walk(manifests_dir):
+            for fname in files:
+                rel = os.path.relpath(os.path.join(root, fname), manifests_dir)
+                parts = rel.split(os.sep)
+                if len(parts) == 4:
+                    registry, namespace, model, tag = parts
+                    if registry == _OLLAMA_DEFAULT_REGISTRY and namespace == _OLLAMA_DEFAULT_NAMESPACE:
+                        models.append(f"{model}:{tag}")
+                    else:
+                        models.append(f"{registry}/{namespace}/{model}:{tag}")
+        return sorted(models)
+
+    @classmethod
+    def model_dir(cls):
+        return "~/.ollama/models/manifests"
 
     def _wait_for_server_ready(self):
         OLLAMA_SERVER_START_TIMEOUT_SECONDS = 30
@@ -90,7 +132,7 @@ class OllamaBackend:
 
         deadline = time.time() + OLLAMA_SERVER_START_TIMEOUT_SECONDS
         while time.time() < deadline:
-            if self._is_server_running():
+            if self.is_server_running():
                 return True
             time.sleep(OLLAMA_HEALTH_POLL_INTERVAL_SECONDS)
         return False
@@ -104,12 +146,13 @@ class OllamaBackend:
 
     def _ensure_server_running(self):
         print("Checking ollama server...", flush=True)
-        if self._is_server_running():
+        if self.is_server_running():
             print("  Already running. Exiting.", flush=True)
             sys.exit(1)
         print("  Starting ollama serve...", flush=True)
         process = self._start_server()
         if not self._wait_for_server_ready():
+            process.terminate()
             print("Error: ollama server did not start in time.", file=sys.stderr)
             sys.exit(1)
         print("  Server ready.", flush=True)
@@ -124,48 +167,15 @@ class OllamaBackend:
 
     def _unload_model(self):
         try:
-            with http_post("/api/generate", {"model": self._model_name, "keep_alive": 0}, base_url=OLLAMA_BASE_URL, timeout=10) as resp:
+            with http_post(
+                "/api/generate",
+                {"model": self._model_name, "keep_alive": 0},
+                base_url=OLLAMA_BASE_URL,
+                timeout=10,
+            ) as resp:
                 resp.read()
         except Exception:
             pass
 
 
-def is_server_running():
-    try:
-        http_get("/", base_url=OLLAMA_BASE_URL, timeout=2)
-        return True
-    except Exception:
-        return False
-
-
-def fetch_models():
-    choices = []
-    try:
-        body = http_get("/api/tags", base_url=OLLAMA_BASE_URL, timeout=5)
-        data = json.loads(body)
-        for m in data.get("models", []):
-            name = m.get("name", "")
-            tag = name.split(":")[-1] if ":" in name else ""
-            choices.append(ModelChoice(name=name, backend="ollama", version=tag,
-                                       display=f"ollama {name}"))
-    except Exception:
-        pass
-    return choices
-
-
-def scan_models():
-    manifests_dir = os.path.expanduser("~/.ollama/models/manifests")
-    if not os.path.isdir(manifests_dir):
-        return None
-    models = []
-    for root, _dirs, files in os.walk(manifests_dir):
-        for fname in files:
-            rel = os.path.relpath(os.path.join(root, fname), manifests_dir)
-            parts = rel.split(os.sep)
-            if len(parts) == 4:
-                registry, namespace, model, tag = parts
-                if registry == "registry.ollama.ai" and namespace == "library":
-                    models.append(f"{model}:{tag}")
-                else:
-                    models.append(f"{registry}/{namespace}/{model}:{tag}")
-    return sorted(models)
+register(OllamaBackend)

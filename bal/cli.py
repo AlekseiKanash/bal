@@ -15,6 +15,7 @@ from importlib.metadata import version as _meta_version
 from simple_term_menu import TerminalMenu
 
 from .backends import (
+    backends,
     create_backend,
     detect_running_backend,
     find_backend_model_matches,
@@ -73,7 +74,8 @@ bare invocation or --select opens the interactive model picker.""",
     parser.add_argument("command", nargs="?", choices=["list", *sorted(AGENTS)], metavar="command")
     parser.add_argument("model_arg", nargs="?", metavar="model")
     parser.add_argument("--model", dest="server_model", metavar="NAME")
-    parser.add_argument("--backend", default="ollama", choices=["ollama", "omlx"])
+    backend_names = sorted(cls.backend_name for cls in backends)
+    parser.add_argument("--backend", default=backend_names[0], choices=backend_names)
     parser.add_argument("--model-dir", default=None, metavar="PATH")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -134,32 +136,19 @@ def list_models():
     print("Available models:")
     print("  Or run: bal --select  for interactive selection\n")
     model_dirs = local_model_dirs()
-
-    # ollama — scan manifest files on disk
-    print("ollama")
     local_models = scan_local_models_by_backend()
-    ollama_models = local_models["ollama"]
-    if ollama_models is None:
-        print(f"     (directory not found: {model_dirs['ollama']})")
-    elif ollama_models:
-        for name in ollama_models:
-            print(f"     {name:<{col}} {script} --model {name}")
-    else:
-        print("     (no models)")
 
-    print()
-
-    # omlx — scan model directory on disk
-    print("omlx")
-    omlx_models = local_models["omlx"]
-    if omlx_models is not None:
-        if omlx_models:
-            for name in omlx_models:
-                print(f"     {name:<{col}} {script} --model {name} --backend omlx")
+    for cls in backends:
+        print(cls.backend_name)
+        models = local_models.get(cls.backend_name)
+        if models is None:
+            print(f"     (directory not found: {model_dirs.get(cls.backend_name, 'unknown')})")
+        elif models:
+            for name in models:
+                print(f"     {name:<{col}} {script} --model {name} --backend {cls.backend_name}")
         else:
             print("     (no models)")
-    else:
-        print(f"     (directory not found: {model_dirs['omlx']})")
+        print()
 
 
 def init_session(backend, model_name, model_dir=None, dry_run=False):
@@ -243,11 +232,12 @@ def start_session_ui(session):
 
 
 def run_input_loop(stop_event: threading.Event):
-    def handle_sigint(signum, frame):
+    def handle_exit(signum, frame):
         stop_event.set()
         sys.exit(0)
 
-    signal.signal(signal.SIGINT, handle_sigint)
+    signal.signal(signal.SIGINT, handle_exit)
+    signal.signal(signal.SIGTERM, handle_exit)
     try:
         while True:
             try:
@@ -271,10 +261,12 @@ def _start_session(backend, model_name, *, model_dir=None, dry_run=False):
 
 
 def _run_agent(agent, model_arg):
-    backend = detect_running_backend()
-    if backend is None:
-        print("Error: no backend running (tried omlx and ollama).", file=sys.stderr)
+    backend_name = detect_running_backend()
+    if backend_name is None:
+        _names = ", ".join(cls.backend_name for cls in backends)
+        print(f"Error: no backend running (tried {_names}).", file=sys.stderr)
         sys.exit(1)
+    backend = create_backend(backend_name, None)
     if model_arg is None:
         backend.exec_agent(agent, backend.resolve_model(None))
         return

@@ -4,6 +4,14 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
+backends: list["Backend"] = []
+
+
+def register(cls: type["Backend"]) -> type["Backend"]:
+    backends.append(cls)
+    return cls
+
+
 @dataclass
 class ModelChoice:
     """An available model in the interactive selection menu."""
@@ -16,8 +24,24 @@ class ModelChoice:
 class Backend(Protocol):
     backend_name: str
 
+    @classmethod
+    def is_server_running(cls) -> bool:
+        ...
+
+    @classmethod
+    def fetch_models(cls) -> list[ModelChoice]:
+        ...
+
+    @classmethod
+    def scan_models(cls) -> list[str] | None:
+        ...
+
+    @classmethod
+    def model_dir(cls) -> str:
+        ...
+
     @property
-    def model_name(self) -> str:
+    def model_name(self) -> str | None:
         ...
 
     @property

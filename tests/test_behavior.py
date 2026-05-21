@@ -1,4 +1,6 @@
 import io
+import json
+import subprocess
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
@@ -9,6 +11,13 @@ from bal.backends import ModelChoice, create_backend
 from bal.backends.ollama import OllamaBackend
 from bal.backends.omlx import OmlxBackend
 from bal.widgets.header import SessionHeader
+
+
+_FAKE_SETTINGS = {
+    "api_key": "",
+    "server_url": "http://127.0.0.1:8000",
+    "raw": {},
+}
 
 
 class FakeBackend:
@@ -41,8 +50,9 @@ class FakeBackend:
 
 
 class FakeProcess:
-    def __init__(self, poll_result):
+    def __init__(self, poll_result, raise_timeout=False):
         self._poll_result = poll_result
+        self._raise_timeout = raise_timeout
         self.terminated = False
         self.killed = False
         self.waited = False
@@ -55,18 +65,15 @@ class FakeProcess:
 
     def wait(self, timeout=None):
         self.waited = True
+        if self._raise_timeout:
+            raise subprocess.TimeoutExpired(cmd="", timeout=timeout)
 
     def kill(self):
         self.killed = True
 
 
 def make_omlx_backend(model_name="qwen"):
-    settings = {
-        "api_key": "",
-        "server_url": "http://127.0.0.1:8000",
-        "raw": {},
-    }
-    with mock.patch("bal.backends.omlx.load_settings", return_value=settings):
+    with mock.patch("bal.backends.omlx._load_settings", return_value=_FAKE_SETTINGS):
         return OmlxBackend(model_name)
 
 
@@ -74,13 +81,12 @@ class InitSessionTests(unittest.TestCase):
     def test_create_backend_returns_selected_backend(self):
         self.assertIsInstance(create_backend("ollama", "llama3"), OllamaBackend)
 
-        settings = {
-            "api_key": "",
-            "server_url": "http://127.0.0.1:8000",
-            "raw": {},
-        }
-        with mock.patch("bal.backends.omlx.load_settings", return_value=settings):
+        with mock.patch("bal.backends.omlx._load_settings", return_value=_FAKE_SETTINGS):
             self.assertIsInstance(create_backend("omlx", "qwen"), OmlxBackend)
+
+    def test_create_backend_raises_for_unknown_backend(self):
+        with self.assertRaises(ValueError):
+            create_backend("unknown", "model")
 
     def test_init_session_starts_registers_cleanup_then_preloads(self):
         fake = FakeBackend("Qwen")
@@ -159,6 +165,20 @@ class CleanupTests(unittest.TestCase):
         self.assertTrue(process.waited)
         self.assertFalse(process.killed)
 
+    def test_ollama_cleanup_kills_process_after_timeout(self):
+        backend = OllamaBackend("llama3")
+        process = FakeProcess(poll_result=None, raise_timeout=True)
+        backend._serve_process = process
+
+        with (
+            mock.patch.object(backend, "_unload_model"),
+            redirect_stdout(io.StringIO()),
+        ):
+            backend.cleanup()
+
+        self.assertTrue(process.terminated)
+        self.assertTrue(process.killed)
+
     def test_ollama_cleanup_does_not_stop_exited_process(self):
         backend = OllamaBackend("llama3")
         process = FakeProcess(poll_result=0)
@@ -189,9 +209,53 @@ class CleanupTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             attached.cleanup()
 
+    def test_omlx_cleanup_kills_process_after_timeout(self):
+        backend = make_omlx_backend()
+        process = FakeProcess(poll_result=None, raise_timeout=True)
+        backend._serve_process = process
+
+        with redirect_stdout(io.StringIO()):
+            backend.cleanup()
+
+        self.assertTrue(process.terminated)
+        self.assertTrue(process.killed)
+
+
+class EnsureServerRunningTests(unittest.TestCase):
+    def test_ollama_terminates_process_when_server_does_not_start(self):
+        backend = OllamaBackend("llama3")
+        process = FakeProcess(poll_result=None)
+
+        with (
+            mock.patch.object(backend, "_start_server", return_value=process),
+            mock.patch.object(backend, "_wait_for_server_ready", return_value=False),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            backend._ensure_server_running()
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertTrue(process.terminated)
+
+    def test_omlx_terminates_process_when_server_does_not_start(self):
+        backend = make_omlx_backend()
+
+        with mock.patch.object(backend, "_is_server_running", return_value=False):
+            process = FakeProcess(poll_result=None)
+            with (
+                mock.patch.object(backend, "_start_server", return_value=process),
+                mock.patch.object(backend, "_wait_for_server_ready", return_value=False),
+                redirect_stdout(io.StringIO()),
+                self.assertRaises(SystemExit) as cm,
+            ):
+                backend._ensure_server_running()
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertTrue(process.terminated)
+
 
 class AgentExecTests(unittest.TestCase):
-    def test_ollama_agent_exec_uses_ollama_launch_command(self):
+    def test_ollama_exec_agent_calls_ollama_launch_with_model(self):
         backend = OllamaBackend("llama3")
         with mock.patch("bal.backends.ollama.os.execvp") as execvp:
             backend.exec_agent("claude", "llama3")
@@ -201,15 +265,34 @@ class AgentExecTests(unittest.TestCase):
             ["ollama", "launch", "claude", "--model", "llama3"],
         )
 
-    def test_omlx_codex_exec_uses_provider_config_and_api_key(self):
-        settings = {
-            "api_key": "secret",
-            "server_url": "http://127.0.0.1:8000",
-            "raw": {},
-        }
+    def test_ollama_exec_agent_without_model_omits_model_flag(self):
+        backend = OllamaBackend("llama3")
+        with mock.patch("bal.backends.ollama.os.execvp") as execvp:
+            backend.exec_agent("claude", None)
+
+        execvp.assert_called_once_with("ollama", ["ollama", "launch", "claude"])
+
+    def test_omlx_claude_exec_sets_anthropic_env(self):
+        backend = make_omlx_backend()
+        backend._api_key = "mykey"
+        backend._server_url = "http://127.0.0.1:8000"
         with mock.patch("bal.backends.omlx.os.execvpe") as execvpe:
-            with mock.patch("bal.backends.omlx.load_settings", return_value=settings):
-                backend = OmlxBackend("qwen")
+            backend.exec_agent("claude", "qwen3")
+
+        binary, cmd, env = execvpe.call_args.args
+        self.assertEqual(binary, "claude")
+        self.assertEqual(cmd, ["claude"])
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:8000")
+        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "mykey")
+        self.assertEqual(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "qwen3")
+        self.assertEqual(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "qwen3")
+        self.assertEqual(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "qwen3")
+
+    def test_omlx_codex_exec_uses_provider_config_and_api_key(self):
+        backend = make_omlx_backend()
+        backend._api_key = "secret"
+        backend._server_url = "http://127.0.0.1:8000"
+        with mock.patch("bal.backends.omlx.os.execvpe") as execvpe:
             backend.exec_agent("codex", "qwen")
 
         binary, cmd, env = execvpe.call_args.args
@@ -219,6 +302,72 @@ class AgentExecTests(unittest.TestCase):
             ["codex", "-c", 'model_provider="omlx"', "-c", 'model="qwen"'],
         )
         self.assertEqual(env["OMLX_API_KEY"], "secret")
+
+    def test_omlx_unknown_agent_uses_omlx_launch(self):
+        backend = make_omlx_backend()
+        backend._api_key = "mykey"
+        backend._server_url = "http://127.0.0.1:8000"
+        with mock.patch("bal.backends.omlx.os.execvp") as execvp:
+            backend.exec_agent("opencode", "qwen3")
+
+        execvp.assert_called_once_with(
+            "omlx",
+            ["omlx", "launch", "opencode", "--model", "qwen3", "--api-key", "mykey"],
+        )
+
+    def test_omlx_exec_agent_uses_settings_without_calling_start(self):
+        # Regression for crash: _run_agent creates a backend without calling start().
+        # exec_agent must use the URL and key loaded at construction time.
+        settings = {
+            "api_key": "fromfile",
+            "server_url": "http://127.0.0.1:9000",
+            "raw": {},
+        }
+        with mock.patch("bal.backends.omlx._load_settings", return_value=settings):
+            backend = OmlxBackend("qwen")
+
+        with mock.patch("bal.backends.omlx.os.execvpe") as execvpe:
+            backend.exec_agent("claude", None)
+
+        _, _, env = execvpe.call_args.args
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:9000")
+        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "fromfile")
+
+
+class ResolveModelTests(unittest.TestCase):
+    def test_omlx_resolve_model_returns_arg_when_given(self):
+        backend = make_omlx_backend()
+        self.assertEqual(backend.resolve_model("llama3"), "llama3")
+
+    def test_omlx_resolve_model_queries_api_when_no_arg(self):
+        backend = make_omlx_backend()
+        backend._api_key = "key"
+        response_body = json.dumps({"data": [{"id": "qwen3-8b"}]})
+        with mock.patch("bal.backends.omlx.http_get", return_value=response_body):
+            result = backend.resolve_model(None)
+        self.assertEqual(result, "qwen3-8b")
+
+    def test_omlx_resolve_model_returns_none_when_api_fails(self):
+        backend = make_omlx_backend()
+        with mock.patch("bal.backends.omlx.http_get", side_effect=Exception("connection refused")):
+            result = backend.resolve_model(None)
+        self.assertIsNone(result)
+
+    def test_ollama_resolve_model_returns_arg_unchanged(self):
+        backend = OllamaBackend("llama3")
+        self.assertEqual(backend.resolve_model("qwen3"), "qwen3")
+        self.assertIsNone(backend.resolve_model(None))
+
+
+class RunAgentTests(unittest.TestCase):
+    def test_run_agent_exits_when_no_backend_running(self):
+        with (
+            mock.patch.object(cli, "detect_running_backend", return_value=None),
+            self.assertRaises(SystemExit) as cm,
+            redirect_stdout(io.StringIO()),
+        ):
+            cli._run_agent("claude", None)
+        self.assertEqual(cm.exception.code, 1)
 
 
 class ParseArgsTests(unittest.TestCase):
@@ -252,6 +401,9 @@ class ParseArgsTests(unittest.TestCase):
 
     def test_server_model_flag(self):
         self.assertEqual(self._parse("--model", "qwen3").server_model, "qwen3")
+
+    def test_model_dir_flag(self):
+        self.assertEqual(self._parse("--model-dir", "/models").model_dir, "/models")
 
     def test_dry_run_flag(self):
         self.assertTrue(self._parse("--dry-run").dry_run)

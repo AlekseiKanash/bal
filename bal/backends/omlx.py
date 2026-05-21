@@ -5,14 +5,13 @@ import sys
 import time
 import urllib.error
 
-from .base import ModelChoice, http_get, http_post
-
+from .base import ModelChoice, http_get, http_post, register
 
 SETTINGS_PATH = os.path.expanduser("~/.omlx/settings.json")
 DEFAULT_MODEL_DIR = os.path.expanduser("~/.omlx/models")
 
 
-def load_settings():
+def _load_settings():
     try:
         with open(SETTINGS_PATH) as f:
             s = json.load(f)
@@ -32,20 +31,14 @@ def load_settings():
 class OmlxBackend:
     backend_name = "omlx"
 
-    def __init__(self, model_name, model_dir=None):
+    def __init__(self, model_name=None, model_dir=None):
+        settings = _load_settings()
         self._model_name = model_name
         self._version = None
         self._serve_process = None
-
-        settings = load_settings()
         self._api_key = settings["api_key"]
         self._server_url = settings["server_url"]
-        raw_settings = settings["raw"]
-        self._model_dir = (
-            model_dir
-            or raw_settings.get("model", {}).get("model_dir")
-            or DEFAULT_MODEL_DIR
-        )
+        self._model_dir = model_dir or settings["raw"].get("model", {}).get("model_dir") or DEFAULT_MODEL_DIR
 
     @property
     def model_name(self):
@@ -58,11 +51,9 @@ class OmlxBackend:
     def start(self):
         self._serve_process = self._ensure_server_running()
         self._version = self._fetch_version()
-        print(f"  omlx {self._version}", flush=True)
+        print(f"  {self.backend_name} {self._version}", flush=True)
 
     def cleanup(self):
-        # Only stop the server if this session started it; leave pre-existing servers alone.
-        # poll() is None while our child server process is still running.
         if self._serve_process is not None and self._serve_process.poll() is None:
             print("\nStopping omlx server...", flush=True)
             self._serve_process.terminate()
@@ -103,8 +94,7 @@ class OmlxBackend:
         elif agent == "codex":
             env = os.environ.copy()
             env["OMLX_API_KEY"] = self._api_key
-            cmd = ["codex",
-                   "-c", 'model_provider="omlx"']
+            cmd = ["codex", "-c", 'model_provider="omlx"']
             if model:
                 cmd += ["-c", f'model="{model}"']
             os.execvpe("codex", cmd, env)
@@ -133,15 +123,61 @@ class OmlxBackend:
         except Exception as e:
             print(f"  Warning: model preload failed: {e}", file=sys.stderr, flush=True)
 
-    def _is_server_running(self):
-        return is_server_running(self._server_url)
+    @classmethod
+    def is_server_running(cls):
+        settings = _load_settings()
+        try:
+            http_get("/v1/models", base_url=settings["server_url"], timeout=2)
+            return True
+        except urllib.error.HTTPError:
+            return True
+        except Exception:
+            return False
+
+    @classmethod
+    def fetch_models(cls):
+        choices = []
+        settings = _load_settings()
+        api_key = settings["api_key"]
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        try:
+            body = http_get("/v1/models", base_url=settings["server_url"], timeout=5, headers=headers)
+            data = json.loads(body)
+            for m in data.get("data", []):
+                model_id = m.get("id", "")
+                version = m.get("version", "")
+                display = f"{cls.backend_name} {model_id}"
+                if version:
+                    display += f" ({version})"
+                choices.append(ModelChoice(name=model_id, backend=cls.backend_name, version=version,
+                                           display=display))
+        except Exception:
+            pass
+        return choices
+
+    @classmethod
+    def scan_models(cls):
+        model_dir = DEFAULT_MODEL_DIR
+        if not os.path.isdir(model_dir):
+            return None
+        return sorted(
+            e for e in os.listdir(model_dir)
+            if os.path.isdir(os.path.join(model_dir, e))
+        )
+
+    @classmethod
+    def model_dir(cls):
+        return DEFAULT_MODEL_DIR
 
     def _wait_for_server_ready(self):
-        deadline = time.time() + 30
+        SERVER_START_TIMEOUT_SECONDS = 30
+        HEALTH_POLL_INTERVAL_SECONDS = 0.5
+
+        deadline = time.time() + SERVER_START_TIMEOUT_SECONDS
         while time.time() < deadline:
             if self._is_server_running():
                 return True
-            time.sleep(0.5)
+            time.sleep(HEALTH_POLL_INTERVAL_SECONDS)
         return False
 
     def _start_server(self):
@@ -150,16 +186,25 @@ class OmlxBackend:
     def _ensure_server_running(self):
         print("Checking omlx server...", flush=True)
         if self._is_server_running():
-            # omlx is commonly kept running as a service; attach to the existing instance.
             print("  Attached to running server.", flush=True)
             return None
         print("  Starting omlx serve...", flush=True)
         process = self._start_server()
         if not self._wait_for_server_ready():
+            process.terminate()
             print("Error: omlx server did not start in time.", file=sys.stderr)
             sys.exit(1)
         print("  Server ready.", flush=True)
         return process
+
+    def _is_server_running(self):
+        try:
+            http_get("/v1/models", base_url=self._server_url, timeout=2)
+            return True
+        except urllib.error.HTTPError:
+            return True
+        except Exception:
+            return False
 
     def _fetch_version(self):
         try:
@@ -170,44 +215,4 @@ class OmlxBackend:
             return "unknown"
 
 
-def is_server_running(server_url=None):
-    settings = load_settings()
-    base_url = server_url or settings["server_url"]
-    try:
-        http_get("/v1/models", base_url=base_url, timeout=2)
-        return True
-    except urllib.error.HTTPError:
-        return True  # any HTTP response means the server is listening
-    except Exception:
-        return False
-
-
-def fetch_models():
-    choices = []
-    settings = load_settings()
-    api_key = settings["api_key"]
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    try:
-        body = http_get("/v1/models", base_url=settings["server_url"], timeout=5, headers=headers)
-        data = json.loads(body)
-        for m in data.get("data", []):
-            model_id = m.get("id", "")
-            version = m.get("version", "")
-            display = f"omlx {model_id}"
-            if version:
-                display += f" ({version})"
-            choices.append(ModelChoice(name=model_id, backend="omlx", version=version,
-                                       display=display))
-    except Exception:
-        pass
-    return choices
-
-
-def scan_models():
-    model_dir = DEFAULT_MODEL_DIR
-    if not os.path.isdir(model_dir):
-        return None
-    return sorted(
-        e for e in os.listdir(model_dir)
-        if os.path.isdir(os.path.join(model_dir, e))
-    )
+register(OmlxBackend)

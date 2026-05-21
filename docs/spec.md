@@ -246,6 +246,7 @@ No user-facing commands are defined yet other than the termination mechanism des
 | Trigger | Behavior |
 |---|---|
 | `Ctrl-C` (SIGINT) | Run graceful shutdown (see below), restore the terminal, and exit. |
+| `kill <pid>` (SIGTERM) | Same as SIGINT — explicit SIGTERM handler calls `sys.exit(0)`, triggering `atexit`. |
 | Script killed / terminal closed | `atexit` registration ensures graceful shutdown runs on normal and `sys.exit()` paths. |
 
 **Graceful shutdown sequence (ollama):**

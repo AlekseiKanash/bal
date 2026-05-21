@@ -29,7 +29,7 @@ Backend-specific HTTP endpoints, settings files, subprocess commands, model disc
 | Function | Description |
 |---|---|
 | `create_backend(name, model_name, model_dir=None)` | Instantiate the selected backend |
-| `detect_running_backend()` | Return a backend for the currently running server, or `None` |
+| `detect_running_backend()` | Return the name of the currently running backend, or `None` |
 | `list_available_models()` | Return `ModelChoice` entries from running APIs or local fallback scans |
 | `find_backend_model_matches(model_name)` | Return matching `(backend, model)` pairs for disambiguation |
 | `scan_local_models_by_backend()` | Return local model names grouped by backend for `bal list` |
@@ -37,8 +37,10 @@ Backend-specific HTTP endpoints, settings files, subprocess commands, model disc
 ### `start()`
 
 Runs the server startup sequence:
-1. Checks if the server is already running; exits with code 1 if it is.
-2. Starts the server as a background subprocess and waits for it to become ready (up to 30 seconds).
+1. Checks if the server is already running.
+   - **ollama**: exits with code 1 if already running (exclusive lifecycle ownership).
+   - **omlx**: attaches to the running instance; `_serve_process` stays `None` so cleanup never stops it.
+2. Starts the server as a background subprocess and waits for it to become ready (up to 30 seconds). If the server does not start in time, the spawned process is terminated before exiting with code 1.
 3. Fetches the server version and exposes it through `version`.
 
 After `start()` returns, the server is up and `version` is populated. Model loading is **not** done here — it is the caller's responsibility (see `init_session`).
@@ -49,7 +51,7 @@ Runs the graceful shutdown sequence. Terminates the server subprocess if this in
 
 For `OllamaBackend`, also unloads the model first via POST `/api/generate` with `keep_alive: 0`.
 
-Registered with `atexit` by `init_session()` so it runs on both normal exit and `sys.exit()`.
+Registered with `atexit` by `init_session()` so it runs on both normal exit and `sys.exit()`. SIGTERM is also handled by `run_input_loop` and calls `sys.exit(0)`, which triggers `atexit`.
 
 ### `launch_command(agent)`
 
@@ -60,7 +62,7 @@ Returns the `bal <agent> <model>` command shown in the UI hint section. Both bac
 Loads the model into memory.
 
 - **OllamaBackend**: POST `/api/generate` with `keep_alive: -1`; streams progress to stdout; exits with code 1 on error.
-- **OmlxBackend**: no-op — omlx auto-loads models on first inference request.
+- **OmlxBackend**: POST `/v1/chat/completions` with `max_tokens: 1` to trigger eager load; prints a warning on failure but does not exit.
 
 ### Cleanup Model Handling
 
@@ -81,11 +83,11 @@ Communicates with `http://localhost:11434` using the ollama REST API.
 
 | Method | Description |
 |---|---|
-| `_is_server_running()` | GET `/` health check; returns bool |
-| `_wait_for_server_ready()` | Polls `_is_server_running()` until ready or 30 s timeout |
+| `_wait_for_server_ready()` | Polls `is_server_running()` until ready or 30 s timeout |
 | `_start_server()` | Spawns `ollama serve` as a background `Popen` process |
-| `_ensure_server_running()` | Orchestrates server check and conditional start; returns the process or exits |
+| `_ensure_server_running()` | Checks health, starts server if needed; terminates process and exits on timeout |
 | `_fetch_version()` | GET `/api/version`; returns version string or `"unknown"` |
+| `_unload_model()` | POST `/api/generate` with `keep_alive: 0`; swallows errors |
 
 ## `OmlxBackend`
 
@@ -95,18 +97,20 @@ OmlxBackend(model_name: str, model_dir: str | None = None)
 
 Source repo: https://github.com/jundot/omlx
 
-Communicates with `http://localhost:8000` using the OpenAI-compatible REST API.
+Communicates with the URL and port read from `~/.omlx/settings.json` (`server.host` / `server.port`; defaults: `127.0.0.1:8000`) using the OpenAI-compatible REST API.
 
-`model_dir` defaults to `~/.omlx/models` and is passed to `omlx serve --model-dir`.
+Settings (`api_key`, `server_url`, `model_dir`) are loaded from `~/.omlx/settings.json` in `__init__`, so the instance is fully configured at construction — before `start()` is called. This is required for the agent proxy path, which creates a backend without calling `start()`.
+
+`model_dir` defaults to `~/.omlx/models` (or the value from `settings.model.model_dir`) and is passed to `omlx serve --model-dir`.
 
 ### Private Methods
 
 | Method | Description |
 |---|---|
-| `_is_server_running()` | GET `/v1/models` health check; returns bool |
+| `_is_server_running()` | GET `/v1/models` health check using the instance's `_server_url`; returns bool |
 | `_wait_for_server_ready()` | Polls `_is_server_running()` until ready or 30 s timeout |
 | `_start_server()` | Spawns `omlx serve --model-dir <path>` as a background `Popen` process |
-| `_ensure_server_running()` | Orchestrates server check and conditional start; returns the process or exits |
+| `_ensure_server_running()` | Attaches if running; starts server if not; terminates process and exits on timeout |
 | `_fetch_version()` | GET `/api/status`; returns version string or `"unknown"` |
 
 ## `init_session(backend, model_name, model_dir=None, dry_run=False)`
@@ -124,6 +128,7 @@ Registers `cleanup()` with `atexit` in both modes.
 init_session(backend, model_name)
         │
         ├─ OllamaBackend(model_name)  or  OmlxBackend(model_name, model_dir)
+        │         └─ settings loaded at __init__ (omlx only)
         │
     backend.start()          ← server up, version set; model NOT yet loaded
         │

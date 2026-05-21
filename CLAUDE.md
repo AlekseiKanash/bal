@@ -39,7 +39,7 @@
 - `SessionHeader` reads `backend_name`, `version`, and `model_name` directly from the session instance
 - `_run_update_loop`: calls `tick(now)` on every widget then flushes stdout once — single flush prevents flicker
 - `_build_sorted_list`: assigns rows to auto widgets, sorts by `_row`, appends `Border` instances last so they render as overlays
-- Graceful shutdown via `atexit` — unloads model, stops server only if this session started it
+- Graceful shutdown via `atexit` — unloads model, stops server only if this session started it; SIGTERM is explicitly handled alongside SIGINT and calls `sys.exit(0)` to trigger `atexit`
 - `_pick_model()` — shows interactive `TerminalMenu` over available models; returns `ModelChoice` or `None` if cancelled
 - `_resolve_session_params(args)` — returns `(backend, model_name, model_dir, dry_run)` from picker (bare/--select) or from CLI args; `None` if picker cancelled
 

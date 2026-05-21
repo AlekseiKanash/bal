@@ -175,7 +175,7 @@ class OmlxBackend:
 
         deadline = time.time() + SERVER_START_TIMEOUT_SECONDS
         while time.time() < deadline:
-            if self._is_server_running():
+            if self.is_server_running():
                 return True
             time.sleep(HEALTH_POLL_INTERVAL_SECONDS)
         return False
@@ -185,7 +185,7 @@ class OmlxBackend:
 
     def _ensure_server_running(self):
         print("Checking omlx server...", flush=True)
-        if self._is_server_running():
+        if self.is_server_running():
             print("  Attached to running server.", flush=True)
             return None
         print("  Starting omlx serve...", flush=True)
@@ -196,15 +196,6 @@ class OmlxBackend:
             sys.exit(1)
         print("  Server ready.", flush=True)
         return process
-
-    def _is_server_running(self):
-        try:
-            http_get("/v1/models", base_url=self._server_url, timeout=2)
-            return True
-        except urllib.error.HTTPError:
-            return True
-        except Exception:
-            return False
 
     def _fetch_version(self):
         try:

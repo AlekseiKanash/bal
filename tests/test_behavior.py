@@ -4,7 +4,8 @@ import os
 import subprocess
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+import urllib.error
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
@@ -297,6 +298,54 @@ class ListAvailableModelsTests(unittest.TestCase):
         names = {(m.backend, m.name) for m in models}
         self.assertIn(("ollama", "llama3:8b"), names)
         self.assertIn(("omlx", "Qwen3"), names)
+
+
+class FetchModelsErrorHandlingTests(unittest.TestCase):
+    """Backend-off (URLError) is silent; server-up-but-failing is logged."""
+
+    def _run_and_capture(self, backend_cls, exception):
+        target = f"bal.backends.{backend_cls.backend_name}.http_get"
+        captured = io.StringIO()
+        with (
+            mock.patch(target, side_effect=exception),
+            redirect_stderr(captured),
+        ):
+            result = backend_cls.fetch_models()
+        return result, captured.getvalue()
+
+    def test_ollama_silent_on_connection_refused(self):
+        err = urllib.error.URLError("[Errno 61] Connection refused")
+        result, stderr = self._run_and_capture(OllamaBackend, err)
+        self.assertEqual(result, [])
+        self.assertEqual(stderr, "")
+
+    def test_omlx_silent_on_connection_refused(self):
+        err = urllib.error.URLError("[Errno 61] Connection refused")
+        result, stderr = self._run_and_capture(OmlxBackend, err)
+        self.assertEqual(result, [])
+        self.assertEqual(stderr, "")
+
+    def test_ollama_warns_on_http_error(self):
+        err = urllib.error.HTTPError("http://x", 500, "Server Error", {}, None)
+        result, stderr = self._run_and_capture(OllamaBackend, err)
+        self.assertEqual(result, [])
+        self.assertIn("HTTP 500", stderr)
+
+    def test_omlx_warns_on_http_error(self):
+        err = urllib.error.HTTPError("http://x", 401, "Unauthorized", {}, None)
+        result, stderr = self._run_and_capture(OmlxBackend, err)
+        self.assertEqual(result, [])
+        self.assertIn("HTTP 401", stderr)
+
+    def test_ollama_warns_on_malformed_json(self):
+        captured = io.StringIO()
+        with (
+            mock.patch("bal.backends.ollama.http_get", return_value="not json"),
+            redirect_stderr(captured),
+        ):
+            result = OllamaBackend.fetch_models()
+        self.assertEqual(result, [])
+        self.assertIn("fetch_models failed", captured.getvalue())
 
 
 class CleanupTests(unittest.TestCase):

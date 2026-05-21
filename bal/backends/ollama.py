@@ -110,7 +110,11 @@ class OllamaBackend:
                 tag = name.split(":")[-1] if ":" in name else ""
                 choices.append(ModelChoice(name=name, backend=cls.backend_name, version=tag,
                                            display=f"{cls.backend_name} {name}"))
-        except (urllib.error.URLError, OSError, json.JSONDecodeError, TimeoutError) as e:
+        except urllib.error.HTTPError as e:
+            print(f"  Warning: {cls.backend_name} fetch_models failed: HTTP {e.code}", file=sys.stderr)
+        except urllib.error.URLError:
+            pass  # server not reachable — expected when backend is off
+        except json.JSONDecodeError as e:
             print(f"  Warning: {cls.backend_name} fetch_models failed: {e}", file=sys.stderr)
         return choices
 

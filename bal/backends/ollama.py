@@ -17,7 +17,7 @@ class OllamaBackend:
 
     def __init__(self, model_name=None, model_dir=None):
         self._model_name = model_name
-        self._version = None
+        self._version = ""
         self._serve_process = None
 
     @property

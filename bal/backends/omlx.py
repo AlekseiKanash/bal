@@ -38,7 +38,7 @@ class OmlxBackend:
     def __init__(self, model_name=None, model_dir=None):
         settings = _load_settings()
         self._model_name = model_name
-        self._version = None
+        self._version = ""
         self._serve_process = None
         self._api_key = settings["api_key"]
         self._server_url = settings["server_url"]

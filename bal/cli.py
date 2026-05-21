@@ -5,6 +5,7 @@
 import argparse
 import atexit
 import os
+import shutil
 import signal
 import sys
 import threading
@@ -151,20 +152,10 @@ def list_models():
         print()
 
 
-def init_session(backend, model_name, model_dir=None, dry_run=False):
-    session = create_backend(backend, model_name, model_dir=model_dir)
-    session.start()
-    # Register before preload so preload failures still clean up the backend.
-    atexit.register(session.cleanup)
-    if not dry_run:
-        print(f"Loading {session.model_name}...", flush=True)
-        session.preload_model()
-    return session
-
-
 def restore_terminal():
     if sys.stdout.isatty():
-        sys.stdout.write("\033[?25h")  # ensure cursor is visible on exit
+        sys.stdout.write("\033[r")        # reset scrolling region to full screen
+        sys.stdout.write("\033[?25h")     # ensure cursor is visible on exit
         sys.stdout.flush()
 
 
@@ -222,9 +213,16 @@ def _build_sorted_list(updatables) -> list:
 
 
 def start_session_ui(session):
-    os.system("clear")
+    sys.stdout.write("\033[2J\033[H")                    # clear + home
     updatables = _build_ui(session)
-    sys.stdout.write("\n" * len(updatables))
+    now = time.time()
+    for w in updatables:
+        w.tick(now)                                      # first paint
+    ui_bottom = max(w._row + getattr(w, "height", 1) - 1 for w in updatables)
+    term_rows = shutil.get_terminal_size().lines
+    log_top = ui_bottom + 1
+    sys.stdout.write(f"\033[{log_top};{term_rows}r")     # DECSTBM scroll region
+    sys.stdout.write(f"\033[{log_top};1H")               # park cursor in log area
     sys.stdout.flush()
     stop_event = threading.Event()
     threading.Thread(target=_run_update_loop, args=(updatables, stop_event), daemon=True).start()
@@ -255,8 +253,14 @@ def run_input_loop(stop_event: threading.Event):
 
 def _start_session(backend, model_name, *, model_dir=None, dry_run=False):
     atexit.register(restore_terminal)
-    session = init_session(backend, model_name, model_dir=model_dir, dry_run=dry_run)
+    session = create_backend(backend, model_name, model_dir=model_dir)
+    # Register cleanup before start() so any partial state still gets torn down.
+    atexit.register(session.cleanup)
     stop_event = start_session_ui(session)
+    session.start()
+    if not dry_run:
+        print(f"Loading {session.model_name}...", flush=True)
+        session.preload_model()
     run_input_loop(stop_event)
 
 

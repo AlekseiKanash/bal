@@ -27,7 +27,8 @@ from .backends import (
 from .widgets.header import SessionHeader
 from .widgets.horizontal_text import HorizontalText
 from .widgets.border import Border
-from .widgets.statistics import StatisticsWidget
+from .widgets.statistics import StatisticsWidget, ram_getter
+from .widgets.status_separator import SessionStatus, SessionStatusSeparator
 
 
 try:
@@ -168,7 +169,7 @@ def _run_update_loop(updatables: list, stop_event: threading.Event):
         stop_event.wait(HEADER_UPDATE_INTERVAL_SECONDS)
 
 
-def _build_ui(session) -> list:
+def _build_ui(session, status) -> list:
     """Build and initialize all updatable UI objects. Must be called after terminal is cleared."""
 
     lines = []
@@ -188,6 +189,12 @@ def _build_ui(session) -> list:
     lines += [
         HorizontalText(f"  {session.launch_command(agent)}")
         for agent in AGENTS
+    ]
+
+    lines += [
+        HorizontalText(""),
+        SessionStatusSeparator(status, width=83),
+        HorizontalText(""),
     ]
 
     return _build_sorted_list(lines)
@@ -212,9 +219,9 @@ def _build_sorted_list(updatables) -> list:
     return sorted(regular, key=lambda m: m._row) + overlays
 
 
-def start_session_ui(session):
+def start_session_ui(session, status):
     sys.stdout.write("\033[2J\033[H")                    # clear + home
-    updatables = _build_ui(session)
+    updatables = _build_ui(session, status)
     now = time.time()
     for w in updatables:
         w.tick(now)                                      # first paint
@@ -254,13 +261,17 @@ def run_input_loop(stop_event: threading.Event):
 def _start_session(backend, model_name, *, model_dir=None, dry_run=False):
     atexit.register(restore_terminal)
     session = create_backend(backend, model_name, model_dir=model_dir)
-    # Register cleanup before start() so any partial state still gets torn down.
     atexit.register(session.cleanup)
-    stop_event = start_session_ui(session)
+    status = SessionStatus()
+    stop_event = start_session_ui(session, status)
     session.start()
     if not dry_run:
+        size_gb = session.model_size_bytes() / (1024 ** 3)
+        baseline_gb = float(ram_getter())
+        status.start_loading(session.model_name, size_gb, baseline_gb, ram_getter)
         print(f"Loading {session.model_name}...", flush=True)
         session.preload_model()
+    status.set_live()
     run_input_loop(stop_event)
 
 

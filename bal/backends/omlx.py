@@ -126,6 +126,19 @@ class OmlxBackend:
         except Exception as e:
             print(f"  Warning: model preload failed: {e}", file=sys.stderr, flush=True)
 
+    def model_size_bytes(self):
+        model_path = os.path.join(self._model_dir, self._model_name)
+        if not os.path.isdir(model_path):
+            return 0
+        total = 0
+        for root, _dirs, files in os.walk(model_path):
+            for f in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+        return total
+
     @classmethod
     def is_server_running(cls):
         settings = _load_settings()

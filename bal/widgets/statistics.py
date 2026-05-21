@@ -37,6 +37,16 @@ def _gpu_load_macos():
     return float(match.group(1)) if match else 0.0
 
 
+def ram_getter(precision=1):
+    """Used RAM in GB as a formatted string. Used by both StatisticsWidget and the loading-progress estimator."""
+    if platform.system() == "Darwin":
+        used_gb = _ram_used_gb_macos()
+    else:
+        mem = psutil.virtual_memory()
+        used_gb = (mem.total - mem.available) / (1024**3)
+    return f"{used_gb:.{precision}f}"
+
+
 class _PowermetricsSampler:
     def __init__(self):
         self._cpu_w = 0.0
@@ -86,7 +96,7 @@ class StatisticsWidget:
                        secondary_getter=power.cpu_w, secondary_unit="W"),
             ValueMeter("GPU", self._gpu_getter, 100.0, unit="%",
                        secondary_getter=power.gpu_w, secondary_unit="W"),
-            ValueMeter("RAM", self._ram_getter, ram_total_gb, unit="GB"),
+            ValueMeter("RAM", ram_getter, ram_total_gb, unit="GB"),
         ]
 
     @property
@@ -109,15 +119,6 @@ class StatisticsWidget:
         if platform.system() == "Darwin":
             return f"{_gpu_load_macos():.{precision}f}"
         return "0"
-
-    @staticmethod
-    def _ram_getter(precision=1):
-        if platform.system() == "Darwin":
-            used_gb = _ram_used_gb_macos()
-        else:
-            mem = psutil.virtual_memory()
-            used_gb = (mem.total - mem.available) / (1024**3)
-        return f"{used_gb:.{precision}f}"
 
     def tick(self, now: float) -> None:
         for meter in self._meters:

@@ -81,6 +81,16 @@ class OllamaBackend:
             print(f"  HTTP {exc.code}: {exc.read().decode()}", file=sys.stderr, flush=True)
             sys.exit(1)
 
+    def model_size_bytes(self):
+        try:
+            body = http_get("/api/tags", base_url=OLLAMA_BASE_URL, timeout=5)
+            for m in json.loads(body).get("models", []):
+                if m.get("name") == self._model_name:
+                    return int(m.get("size", 0))
+        except Exception:
+            pass
+        return 0
+
     @classmethod
     def is_server_running(cls):
         try:

@@ -153,8 +153,8 @@ class OmlxBackend:
                     display += f" ({version})"
                 choices.append(ModelChoice(name=model_id, backend=cls.backend_name, version=version,
                                            display=display))
-        except Exception:
-            pass
+        except (urllib.error.URLError, OSError, json.JSONDecodeError, TimeoutError) as e:
+            print(f"  Warning: {cls.backend_name} fetch_models failed: {e}", file=sys.stderr)
         return choices
 
     @classmethod

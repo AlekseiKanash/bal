@@ -20,14 +20,16 @@ def detect_running_backend():
 def list_available_models():
     models = []
     for cls in backends:
-        models.extend(cls.fetch_models())
-    if models:
-        return models
-    for cls in backends:
+        live = cls.fetch_models()
+        if live:
+            models.extend(live)
+            continue
         for name in cls.scan_models() or []:
             tag = name.split(":")[-1] if ":" in name else ""
-            models.append(ModelChoice(name=name, backend=cls.backend_name, version=tag,
-                                      display=f"{cls.backend_name} {name}"))
+            models.append(ModelChoice(
+                name=name, backend=cls.backend_name, version=tag,
+                display=f"{cls.backend_name} {name}",
+            ))
     return models
 
 

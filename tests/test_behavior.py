@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from bal import cli
-from bal.backends import ModelChoice, create_backend, list_available_models
+from bal.backends import ModelChoice, backends_manager, BackendManager
 from bal.backends.ollama import OllamaBackend
 from bal.backends.omlx import OmlxBackend
 from bal.widgets.header import SessionHeader
@@ -86,14 +86,14 @@ def make_omlx_backend(model_name="qwen", model_dir=None):
 
 class CreateBackendTests(unittest.TestCase):
     def test_create_backend_returns_selected_backend(self):
-        self.assertIsInstance(create_backend("ollama", "llama3"), OllamaBackend)
+        self.assertIsInstance(backends_manager.create_backend("ollama", "llama3"), OllamaBackend)
 
         with mock.patch("bal.backends.omlx._load_settings", return_value=_FAKE_SETTINGS):
-            self.assertIsInstance(create_backend("omlx", "qwen"), OmlxBackend)
+            self.assertIsInstance(backends_manager.create_backend("omlx", "qwen"), OmlxBackend)
 
     def test_create_backend_raises_for_unknown_backend(self):
         with self.assertRaises(ValueError):
-            create_backend("unknown", "model")
+            backends_manager.create_backend("unknown", "model")
 
 
 class StartSessionTests(unittest.TestCase):
@@ -111,7 +111,7 @@ class StartSessionTests(unittest.TestCase):
             return mock.MagicMock(), mock.MagicMock()
 
         with (
-            mock.patch.object(cli, "create_backend", return_value=fake),
+            mock.patch.object(cli.BackendManager, "create_backend", return_value=fake),
             mock.patch.object(cli.atexit, "register", side_effect=register),
             mock.patch.object(cli, "start_session_ui", side_effect=maybe_capture),
             mock.patch.object(cli, "run_input_loop"),
@@ -291,7 +291,7 @@ class ListAvailableModelsTests(unittest.TestCase):
                 return_value=[ModelChoice("Qwen3", "omlx", "", "omlx Qwen3")],
             ),
         ):
-            models = list_available_models()
+            models = backends_manager.list_available_models()
 
         names = {(m.backend, m.name) for m in models}
         self.assertIn(("ollama", "llama3:8b"), names)
@@ -560,7 +560,7 @@ class ResolveModelTests(unittest.TestCase):
 class RunAgentTests(unittest.TestCase):
     def test_run_agent_exits_when_no_backend_running(self):
         with (
-            mock.patch.object(cli, "detect_running_backend", return_value=None),
+            mock.patch.object(cli.BackendManager, "detect_running_backend", return_value=None),
             self.assertRaises(SystemExit) as cm,
             redirect_stdout(io.StringIO()),
         ):

@@ -17,12 +17,8 @@ from simple_term_menu import TerminalMenu
 
 from .backends import (
     backends,
-    create_backend,
-    detect_running_backend,
-    find_backend_model_matches,
-    list_available_models,
-    local_model_dirs,
-    scan_local_models_by_backend,
+    backends_manager,
+    BackendManager,
 )
 from .widgets.header import SessionHeader
 from .widgets.horizontal_text import HorizontalText
@@ -86,7 +82,7 @@ bare invocation or --select opens the interactive model picker.""",
 
 def _pick_model():
     """Interactively select a model; returns ModelChoice or None if cancelled."""
-    models = list_available_models()
+    models = backends_manager.list_available_models()
     if not models:
         print("Error: no models available on any backend.", file=sys.stderr)
         sys.exit(1)
@@ -109,7 +105,7 @@ def _resolve_session_params(args):
 
 def _select_backend_for_model(model_name):
     """When a model name exists on multiple backends, ask user to pick."""
-    matching = find_backend_model_matches(model_name)
+    matching = backends_manager.find_backend_model_matches(model_name)
 
     if not matching:
         return None
@@ -138,8 +134,8 @@ def list_models():
 
     print("Available models:")
     print("  Or run: bal --select  for interactive selection\n")
-    model_dirs = local_model_dirs()
-    local_models = scan_local_models_by_backend()
+    model_dirs = backends_manager.local_model_dirs()
+    local_models = backends_manager.scan_local_models_by_backend()
 
     for cls in backends:
         print(cls.backend_name)
@@ -266,7 +262,7 @@ def run_input_loop(stop_event: threading.Event, log_widget: LogWidget):
 
 def _start_session(backend, model_name, *, model_dir=None, dry_run=False):
     atexit.register(restore_terminal)
-    session = create_backend(backend, model_name, model_dir=model_dir)
+    session = backends_manager.create_backend(backend, model_name, model_dir=model_dir)
     atexit.register(session.cleanup)
     status = SessionStatus()
     stop_event, log_widget = start_session_ui(session, status)
@@ -282,19 +278,19 @@ def _start_session(backend, model_name, *, model_dir=None, dry_run=False):
 
 
 def _run_agent(agent, model_arg):
-    backend_name = detect_running_backend()
+    backend_name = backends_manager.detect_running_backend()
     if backend_name is None:
         _names = ", ".join(cls.backend_name for cls in backends)
         print(f"Error: no backend running (tried {_names}).", file=sys.stderr)
         sys.exit(1)
-    backend = create_backend(backend_name, None)
+    backend = backends_manager.create_backend(backend_name, None)
     if model_arg is None:
         backend.exec_agent(agent, backend.resolve_model(None))
         return
     result = _select_backend_for_model(model_arg)
     if result is not None:
         backend_name, model_arg = result
-        backend = create_backend(backend_name, model_arg)
+        backend = backends_manager.create_backend(backend_name, model_arg)
     backend.exec_agent(agent, backend.resolve_model(model_arg))
 
 

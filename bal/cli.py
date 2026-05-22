@@ -29,6 +29,7 @@ from .widgets.horizontal_text import HorizontalText
 from .widgets.border import Border
 from .widgets.statistics import StatisticsWidget, ram_getter
 from .widgets.status_separator import SessionStatus, SessionStatusSeparator
+from .widgets.log_widget import LogWidget
 
 
 try:
@@ -231,12 +232,14 @@ def start_session_ui(session, status):
     sys.stdout.write(f"\033[{log_top};{term_rows}r")     # DECSTBM scroll region
     sys.stdout.write(f"\033[{log_top};1H")               # park cursor in log area
     sys.stdout.flush()
+    log_widget = LogWidget(log_top)
+    updatables.append(log_widget)
     stop_event = threading.Event()
     threading.Thread(target=_run_update_loop, args=(updatables, stop_event), daemon=True).start()
-    return stop_event
+    return stop_event, log_widget
 
 
-def run_input_loop(stop_event: threading.Event):
+def run_input_loop(stop_event: threading.Event, log_widget: LogWidget):
     def handle_exit(signum, frame):
         stop_event.set()
         sys.exit(0)
@@ -249,6 +252,7 @@ def run_input_loop(stop_event: threading.Event):
                 user_input = input(INPUT_PROMPT)
             except EOFError:
                 break
+            log_widget.append(user_input)
             if user_input.startswith("/"):
                 # Command dispatch — no commands defined yet
                 pass
@@ -263,7 +267,7 @@ def _start_session(backend, model_name, *, model_dir=None, dry_run=False):
     session = create_backend(backend, model_name, model_dir=model_dir)
     atexit.register(session.cleanup)
     status = SessionStatus()
-    stop_event = start_session_ui(session, status)
+    stop_event, log_widget = start_session_ui(session, status)
     session.start()
     if not dry_run:
         size_gb = session.model_size_bytes() / (1024 ** 3)
@@ -272,7 +276,7 @@ def _start_session(backend, model_name, *, model_dir=None, dry_run=False):
         print(f"Loading {session.model_name}...", flush=True)
         session.preload_model()
     status.set_live()
-    run_input_loop(stop_event)
+    run_input_loop(stop_event, log_widget)
 
 
 def _run_agent(agent, model_arg):

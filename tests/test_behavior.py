@@ -108,7 +108,7 @@ class StartSessionTests(unittest.TestCase):
         def maybe_capture(session, status):
             if capture_status is not None:
                 capture_status["status"] = status
-            return mock.MagicMock()
+            return mock.MagicMock(), mock.MagicMock()
 
         with (
             mock.patch.object(cli, "create_backend", return_value=fake),

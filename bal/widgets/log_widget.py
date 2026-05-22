@@ -18,7 +18,7 @@ class LogWidget:
         with self._lock:
             self._pending.append(message)
 
-    def tick(self, now: float) -> None:
+    def tick(self, delta_ms: float) -> None:
         """Dequeue pending messages, render the visible log area."""
         with self._lock:
             # Flush pending into the main buffer (newest at index 0)

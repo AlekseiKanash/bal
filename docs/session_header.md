@@ -12,7 +12,7 @@ BAL | ollama 0.6.1 | Loaded: llama3 | Running: 0:02:34
 BAL | omlx 1.2.0   | Loaded: llama3 | Running: 0:02:34
 ```
 
-`SessionHeader` is a pure display object — it owns no threads. The caller is responsible for driving updates by calling `tick(now)` at the desired interval.
+`SessionHeader` is a pure display object — it owns no threads. The caller is responsible for driving updates by calling `tick(delta_ms)` at the desired interval.
 
 ## Constructor
 
@@ -31,7 +31,7 @@ SessionHeader(session, row=1)    ← construct; records start time, no side effe
         │
     header.start()               ← no-op; reserved for future use
         │
-        │  caller drives the update loop and calls header.tick(now) on each tick
+        │  caller drives the update loop and calls header.tick(delta_ms) on each tick
         │
     (caller stops the loop)
 ```
@@ -40,9 +40,9 @@ SessionHeader(session, row=1)    ← construct; records start time, no side effe
 
 Currently a no-op stub. Reserved for any future initialisation that must run after the terminal is cleared.
 
-### `tick(now: float)`
+### `tick(delta_ms: float)`
 
-Writes the current header string to the assigned row without disturbing the cursor position the user sees. `now` is a Unix timestamp passed in by the update loop. The sequence used:
+Writes the current header string to the assigned row without disturbing the cursor position the user sees. `delta_ms` is the elapsed milliseconds since the previous tick, passed in by the update loop. The sequence used:
 
 | ANSI code | Effect |
 |---|---|
@@ -54,4 +54,4 @@ Writes the current header string to the assigned row without disturbing the curs
 
 ## Threading
 
-`SessionHeader` contains no threads and no locks. All update calls are driven by the single update thread in `bal/cli.py` (`_run_update_loop`), which passes a shared `now` timestamp to every updatable object on a one-second interval.
+`SessionHeader` contains no threads and no locks. All update calls are driven by the single update thread in `bal/cli.py` (`_run_update_loop`), which passes a shared `delta_ms` value to every updatable object on a one-second interval.

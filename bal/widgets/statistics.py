@@ -120,6 +120,6 @@ class StatisticsWidget:
             return f"{_gpu_load_macos():.{precision}f}"
         return "0"
 
-    def tick(self, now: float) -> None:
+    def tick(self, delta_ms: float) -> None:
         for meter in self._meters:
-            meter.tick(now)
+            meter.tick(delta_ms)

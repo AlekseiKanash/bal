@@ -162,10 +162,13 @@ def restore_terminal():
 
 
 def _run_update_loop(updatables: list, stop_event: threading.Event):
+    _last_tick = time.time()
     while not stop_event.is_set():
         now = time.time()
+        delta_ms = (now - _last_tick) * 1000
+        _last_tick = now
         for obj in updatables:
-            obj.tick(now)
+            obj.tick(delta_ms)
         sys.stdout.flush()
         stop_event.wait(HEADER_UPDATE_INTERVAL_SECONDS)
 
@@ -223,9 +226,8 @@ def _build_sorted_list(updatables) -> list:
 def start_session_ui(session, status):
     sys.stdout.write("\033[2J\033[H")                    # clear + home
     updatables = _build_ui(session, status)
-    now = time.time()
     for w in updatables:
-        w.tick(now)                                      # first paint
+        w.tick(0.0)                                      # first paint, delta = 0
     ui_bottom = max(w._row + getattr(w, "height", 1) - 1 for w in updatables)
     term_rows = shutil.get_terminal_size().lines
     log_top = ui_bottom + 1

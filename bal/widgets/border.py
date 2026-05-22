@@ -10,7 +10,7 @@ class Border:
         self._width    = width
         self._col      = col
 
-    def tick(self, now: float) -> None:
+    def tick(self, delta_ms: float) -> None:
         self.draw()
 
     def draw(self) -> None:

@@ -158,12 +158,11 @@ class HeaderTests(unittest.TestCase):
             model_name="llama3",
         )
 
-        with mock.patch("bal.widgets.header.time.time", return_value=100.0):
-            header = SessionHeader(backend, row=1)
+        header = SessionHeader(backend, row=1)
 
         out = io.StringIO()
         with redirect_stdout(out):
-            header.tick(100.0 + 3723)
+            header.tick(3723000.0)
 
         rendered = out.getvalue()
         self.assertIn("BAL | ollama 0.6.1", rendered)
@@ -182,7 +181,6 @@ class SessionStatusTests(unittest.TestCase):
         self.assertEqual(s.model_name, "qwen3")
         self.assertEqual(s.model_size_gb, 18.0)
         self.assertEqual(s.baseline_ram_gb, 10.0)
-        self.assertGreater(s.load_started_at, 0)
 
     def test_set_live_advances_state(self):
         s = SessionStatus()
@@ -193,8 +191,8 @@ class SessionStatusTests(unittest.TestCase):
 class SessionStatusSeparatorTests(unittest.TestCase):
     WIDTH = 83
 
-    def _render(self, status, now=0.0):
-        return SessionStatusSeparator(status, width=self.WIDTH, row=1)._format(now)
+    def _render(self, status, elapsed=0.0):
+        return SessionStatusSeparator(status, width=self.WIDTH, row=1)._format(elapsed)
 
     def test_booting_label_pads_to_width(self):
         out = self._render(SessionStatus())
@@ -204,7 +202,7 @@ class SessionStatusSeparatorTests(unittest.TestCase):
     def test_loading_renders_percent_bar_and_elapsed(self):
         s = SessionStatus()
         s.start_loading("qwen3", model_size_gb=10.0, baseline_ram_gb=10.0, ram_getter=lambda: "12.0")
-        out = self._render(s, now=s.load_started_at + 5)
+        out = self._render(s, elapsed=5.0)
         self.assertIn("Loading qwen3", out)
         self.assertIn("20%", out)
         self.assertIn("(5s)", out)
@@ -213,14 +211,14 @@ class SessionStatusSeparatorTests(unittest.TestCase):
     def test_loading_caps_at_99_percent(self):
         s = SessionStatus()
         s.start_loading("qwen3", model_size_gb=10.0, baseline_ram_gb=0.0, ram_getter=lambda: "100.0")
-        out = self._render(s, now=s.load_started_at + 1)
+        out = self._render(s, elapsed=1.0)
         self.assertIn("99%", out)
         self.assertNotIn("100%", out)
 
     def test_loading_with_unknown_size_omits_bar_and_percent(self):
         s = SessionStatus()
         s.start_loading("qwen3", model_size_gb=0.0, baseline_ram_gb=0.0, ram_getter=lambda: "0")
-        out = self._render(s, now=s.load_started_at + 3)
+        out = self._render(s, elapsed=3.0)
         self.assertIn("Loading qwen3", out)
         self.assertIn("(3s)", out)
         self.assertNotIn("%", out)
@@ -231,7 +229,7 @@ class SessionStatusSeparatorTests(unittest.TestCase):
         # Free pages reclaimed during load can make delta briefly negative.
         s = SessionStatus()
         s.start_loading("qwen3", model_size_gb=10.0, baseline_ram_gb=20.0, ram_getter=lambda: "15.0")
-        out = self._render(s, now=s.load_started_at + 1)
+        out = self._render(s, elapsed=1.0)
         self.assertIn("0%", out)
 
     def test_live_label_pads_to_width(self):

@@ -1,5 +1,4 @@
 import sys
-import time
 
 
 def _format_elapsed_time(total_seconds):
@@ -14,12 +13,12 @@ class SessionHeader:
     def __init__(self, backend, row: int | None = None):
         self._backend = backend
         self._row = row
-        self._start_time = time.time()
+        self._accumulated_seconds = 0.0
 
-    def tick(self, now: float) -> None:
+    def tick(self, delta_ms: float) -> None:
         """Re-render the header line in-place using ANSI save/restore cursor."""
-        elapsed = now - self._start_time
-        time_str = _format_elapsed_time(elapsed)
+        self._accumulated_seconds += delta_ms / 1000.0
+        time_str = _format_elapsed_time(self._accumulated_seconds)
         line = (
             f"BAL | {self._backend.backend_name} {self._backend.version}"
             f" | Loaded: {self._backend.model_name}"

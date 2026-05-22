@@ -13,7 +13,7 @@ Reusable numeric metric widget: progress bar + sparkline history, driven by a pl
 
 The percentage is color-coded: green [0–49%], yellow [50–89%], red [90–100%]. The trailing value after the sparkline is provided by `secondary_getter` when set, otherwise falls back to the primary current value + `unit`.
 
-`ValueMeter` is a pure display object — it owns no threads. The caller drives updates by calling `tick(now)` at the desired interval.
+`ValueMeter` is a pure display object — it owns no threads. The caller drives updates by calling `tick(delta_ms)` at the desired interval.
 
 ## Constructor
 
@@ -51,7 +51,7 @@ ValueMeter(
 
 ## Methods
 
-### `tick(now: float)`
+### `tick(delta_ms: float)`
 
 Fetches a new value if `update_interval` has elapsed, appends to ring buffer, then calls `draw()`.
 

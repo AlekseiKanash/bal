@@ -34,7 +34,7 @@ Border(row: int, height: int, width: int, col: int = 1)
 
 ## Methods
 
-### `tick(now: float)`
+### `tick(delta_ms: float)`
 
 Calls `draw()` unconditionally every tick. The frame is static so redrawing is cheap; correctness requires it to run after all content widgets so the border chars land on top.
 

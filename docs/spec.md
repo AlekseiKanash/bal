@@ -192,7 +192,7 @@ See [meter.md](meter.md) for full `ValueMeter` documentation.
 
 ## Widget Render Loop
 
-All widgets implement `tick(now: float)`. The update loop calls every widget's `tick()` once per second, then flushes stdout once. Flushing after all widgets have drawn (rather than per widget) ensures the terminal receives a complete frame atomically — preventing visible flicker between intermediate states.
+All widgets implement `tick(delta_ms: float)`. The update loop calls every widget's `tick()` once per second, passing the elapsed milliseconds since the previous tick, then flushes stdout once. Flushing after all widgets have drawn (rather than per widget) ensures the terminal receives a complete frame atomically — preventing visible flicker between intermediate states.
 
 `_build_sorted_list` sorts regular widgets by `_row` and appends `Border` instances last so their frame chars always render on top of content.
 

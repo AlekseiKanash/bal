@@ -53,15 +53,17 @@ class ValueMeter:
         self._history = [None] * history_size
         self._head = 0
         self._current = 0.0
-        self._last_update = 0.0
+        self._accumulated_ms = 0.0
 
-    def tick(self, now: float) -> None:
+    def tick(self, delta_ms: float) -> None:
         """Fetch a new value if the interval has elapsed, then render at the assigned row."""
-        if now - self._last_update >= self._update_interval:
+        self._accumulated_ms += delta_ms
+        interval_ms = self._update_interval * 1000.0
+        if self._accumulated_ms >= interval_ms:
             self._current = float(self._getter())
             self._history[self._head] = self._current
             self._head = (self._head + 1) % self._history_size
-            self._last_update = now
+            self._accumulated_ms -= interval_ms
         self.draw()
 
     def render(self) -> str:

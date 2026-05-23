@@ -4,14 +4,6 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
-backends: list["Backend"] = []
-
-
-def register(cls: type["Backend"]) -> type["Backend"]:
-    backends.append(cls)
-    return cls
-
-
 @dataclass
 class ModelChoice:
     """An available model in the interactive selection menu."""

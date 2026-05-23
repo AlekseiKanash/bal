@@ -5,7 +5,8 @@ import sys
 import time
 import urllib.error
 
-from .base import ModelChoice, http_get, http_post, register
+from .base import ModelChoice, http_get, http_post
+from .manager import BackendManager
 
 SETTINGS_PATH = os.path.expanduser("~/.omlx/settings.json")
 DEFAULT_MODEL_DIR = os.path.expanduser("~/.omlx/models")
@@ -225,4 +226,4 @@ class OmlxBackend:
             return "unknown"
 
 
-register(OmlxBackend)
+BackendManager.register(OmlxBackend)

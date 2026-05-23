@@ -16,7 +16,6 @@ from importlib.metadata import version as _meta_version
 from simple_term_menu import TerminalMenu
 
 from .backends import (
-    backends,
     backends_manager,
     BackendManager,
 )
@@ -73,7 +72,7 @@ bare invocation or --select opens the interactive model picker.""",
     parser.add_argument("command", nargs="?", choices=["list", *sorted(AGENTS)], metavar="command")
     parser.add_argument("model_arg", nargs="?", metavar="model")
     parser.add_argument("--model", dest="server_model", metavar="NAME")
-    backend_names = sorted(cls.backend_name for cls in backends)
+    backend_names = sorted(cls.backend_name for cls in BackendManager.backends)
     parser.add_argument("--backend", default=backend_names[0], choices=backend_names)
     parser.add_argument("--model-dir", default=None, metavar="PATH")
     parser.add_argument("--dry-run", action="store_true")
@@ -137,7 +136,7 @@ def list_models():
     model_dirs = backends_manager.local_model_dirs()
     local_models = backends_manager.scan_local_models_by_backend()
 
-    for cls in backends:
+    for cls in BackendManager.backends:
         print(cls.backend_name)
         models = local_models.get(cls.backend_name)
         if models is None:
@@ -280,7 +279,7 @@ def _start_session(backend, model_name, *, model_dir=None, dry_run=False):
 def _run_agent(agent, model_arg):
     backend_name = backends_manager.detect_running_backend()
     if backend_name is None:
-        _names = ", ".join(cls.backend_name for cls in backends)
+        _names = ", ".join(cls.backend_name for cls in BackendManager.backends)
         print(f"Error: no backend running (tried {_names}).", file=sys.stderr)
         sys.exit(1)
     backend = backends_manager.create_backend(backend_name, None)

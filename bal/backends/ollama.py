@@ -5,7 +5,8 @@ import sys
 import time
 import urllib.error
 
-from .base import ModelChoice, http_get, http_post, register
+from .base import ModelChoice, http_get, http_post
+from .manager import BackendManager
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 _OLLAMA_DEFAULT_REGISTRY = "registry.ollama.ai"
@@ -192,4 +193,4 @@ class OllamaBackend:
             pass
 
 
-register(OllamaBackend)
+BackendManager.register(OllamaBackend)
